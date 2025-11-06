@@ -132,12 +132,10 @@ void process_request(const char* request, int request_len, char* response, int* 
 void read_handler(aeEventLoop* el, int fd, void* privdata, int mask) {
     char buf[4096];
     int nread = anetRead(fd, buf, sizeof(buf));
-
     if (nread <= 0) {
         if (nread < 0) {
             printf("读取错误\n");
-        }
-        else {
+        } else {
             printf("客户端断开连接\n");
         }
         aeDeleteFileEvent(el, fd, AE_READABLE);

@@ -398,9 +398,24 @@ int anetRead(int fd, char *buf, int count)
         if (nread == -1) {
 #ifdef _WIN32
             int err_code = WSAGetLastError();
-            if (err_code == WSAEWOULDBLOCK || err_code == WSAEINTR) {
-                continue;  // 非阻塞模式下重试
-            }
+            if (err_code == WSAEWOULDBLOCK)
+                break;  // 没有更多数据
+            else if (err_code == WSAEINTR)
+                continue;
+            else if (err_code == WSAECONNRESET)
+				return 0; // 连接被重置
+            else if (err_code == WSAENETRESET)
+                return 0; // 连接被重置
+#else
+            if (errno == EINTR)
+                continue;
+            else if (errno == EAGAIN || errno == EWOULDBLOCK)
+                if(totlen > 0)
+                    break; // 没有更多数据
+            else if (err_code == ECONNRESET)
+                return 0;   // 连接被重置 - 断线
+            else if (err_code == ENETRESET)
+			    return 0;   // 连接被重置-切换网络等原因  
 #endif
             return -1;  // 错误
         }
