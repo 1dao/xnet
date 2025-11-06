@@ -31,6 +31,10 @@
 #ifndef ANET_H
 #define ANET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ANET_OK 0
 #define ANET_ERR -1
 #define ANET_ERR_LEN 256
@@ -54,5 +58,9 @@ int anetNonBlock(char *err, int fd);
 int anetTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
 int anetPeerToString(int fd, char *ip, int *port);
+int anetCloseSocket(int fd);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

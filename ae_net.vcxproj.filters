@@ -12,7 +12,6 @@
     <ClCompile Include="anet.c" />
     <ClCompile Include="request.c" />
     <ClCompile Include="response.c" />
-    <ClCompile Include="svr.c" />
     <ClCompile Include="zmalloc.c" />
   </ItemGroup>
   <ItemGroup>

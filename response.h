@@ -1,5 +1,10 @@
 #ifndef _RESPONSE_H
 #define _RESPONSE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct response{
 	int argc;
 	int status;
@@ -12,4 +17,7 @@ void response_detch(struct response *response,char *ackbuf);
 void response_dump(struct response *response);
 void response_free(struct response *response);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

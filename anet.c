@@ -234,7 +234,7 @@ static int anetCreateSocket(char *err, int domain)
 
     int s, on = 1;
 #ifdef _WIN32
-    s = socket(domain, SOCK_STREAM, 0);
+    s = (int)socket(domain, SOCK_STREAM, 0);
     if (s == INVALID_SOCKET) {
         char errbuf[ANET_ERR_LEN];
         anetSetError(err, "creating socket: %s",
@@ -468,8 +468,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len)
     return ANET_OK;
 }
 
-int anetTcpServer(char *err, int port, char *bindaddr)
-{
+int anetTcpServer(char *err, int port, char *bindaddr) {
     int s;
     struct sockaddr_in sa;
 
@@ -532,7 +531,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     int fd;
     while (1) {
 #ifdef _WIN32
-        fd = accept(s, sa, len);
+        fd = (int)accept(s, sa, len);
         if (fd == INVALID_SOCKET) {
             int err_code = WSAGetLastError();
             if (err_code == WSAEINTR)
@@ -611,9 +610,11 @@ int anetPeerToString(int fd, char *ip, int *port)
     return 0;
 }
 
-// Windows 下关闭套接字的封装
+int anetCloseSocket(int fd)
+{
 #ifdef _WIN32
-#define anetCloseSocket closesocket
+    return closesocket(fd);
 #else
-#define anetCloseSocket close
+    return close(fd);
 #endif
+}

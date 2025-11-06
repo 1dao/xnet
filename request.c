@@ -53,7 +53,7 @@ struct request *request_new(char *querybuf) {
 int req_state_len(struct request *req,char *sb) {
     int term=0, first=0;
     char c;
-    int i = req->pos;
+    size_t i = req->pos;
     int pos=i;
 
     while((c = req->querybuf[i]) != '\0') {

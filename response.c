@@ -51,8 +51,8 @@ void response_detch(struct response *res,char *ackbuf)
 
 	for(i=0;i<res->argc;i++){
 		char ls[16]={0};
-		int l=strlen(res->argv[i]);
-		sprintf(ls,"$%d\r\n",l);
+		size_t l=strlen(res->argv[i]);
+		sprintf(ls,"$%d\r\n",(int)l);
 		strcat(ackbuf,ls);
 
 		strcat(ackbuf,res->argv[i]);

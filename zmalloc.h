@@ -31,6 +31,10 @@
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Double expansion needed for stringification of macro values. */
 #define __xstr(s) __str(s)
 #define __str(s) #s
@@ -76,4 +80,7 @@ void zmalloc_enable_thread_safeness(void);
 float zmalloc_get_fragmentation_ratio(void);
 size_t zmalloc_get_rss(void);
 
+#ifdef __cplusplus
+}
+#endif
 #endif /* __ZMALLOC_H */

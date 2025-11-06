@@ -1,6 +1,10 @@
 #ifndef _REQUEST_H
 #define _REQUEST_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct request{
 	char *querybuf;
 	int argc;
@@ -13,4 +17,7 @@ int  request_parse(struct request *request);
 void request_free(struct request *request);
 void request_dump(struct request *request);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

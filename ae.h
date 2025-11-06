@@ -33,6 +33,10 @@
 #ifndef __AE_H__
 #define __AE_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define AE_SETSIZE (1024*10)    /* Max number of fd supported */
 
 #define AE_OK 0
@@ -115,4 +119,7 @@ void aeMain(aeEventLoop *eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

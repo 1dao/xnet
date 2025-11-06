@@ -125,10 +125,11 @@
   <ItemGroup>
     <ClCompile Include="ae.c" />
     <ClCompile Include="ae_ws2.c" />
-    <ClCompile Include="anet.c" />
+    <ClCompile Include="anet.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Default</CompileAs>
+    </ClCompile>
     <ClCompile Include="request.c" />
     <ClCompile Include="response.c" />
-    <ClCompile Include="svr.c" />
     <ClCompile Include="zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
