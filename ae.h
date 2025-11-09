@@ -46,6 +46,7 @@ extern "C" {
 #define AE_READABLE 1
 #define AE_WRITABLE 2
 #define AE_PIPE     4
+#define AE_ACCEPT   8  // for win io completion event
 
 #define AE_FILE_EVENTS 1
 #define AE_TIME_EVENTS 2
@@ -56,7 +57,9 @@ extern "C" {
 
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)
-
+#ifdef _WIN32
+    //#define AE_USING_IOCP
+#endif
 struct aeEventLoop;
 
 /* Types and data structures */
@@ -104,8 +107,11 @@ typedef struct aeEventLoop {
 
 /* Prototypes */
 aeEventLoop *aeCreateEventLoop(void);
+aeEventLoop *aeGetCurEventLoop(void);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
+int aeCreateAcceptEvent(aeEventLoop* eventLoop, int fd, 
+    aeFileProc* proc, void* clientData);
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
@@ -116,8 +122,10 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(int fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);
+void aeFramePoll(aeEventLoop* eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
+int aePostAccept(int socket, void* overlapped);
 
 #ifdef __cplusplus
 }

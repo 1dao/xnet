@@ -13,6 +13,8 @@
     <ClCompile Include="request.c" />
     <ClCompile Include="response.c" />
     <ClCompile Include="zmalloc.c" />
+    <ClCompile Include="coroutine.cpp" />
+    <ClCompile Include="ae_iocp.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
@@ -21,5 +23,6 @@
     <ClInclude Include="request.h" />
     <ClInclude Include="response.h" />
     <ClInclude Include="zmalloc.h" />
+    <ClInclude Include="coroutine.h" />
   </ItemGroup>
 </Project>

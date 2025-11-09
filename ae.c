@@ -51,17 +51,23 @@
 	#include "ae_kqueue.c"
 	#else
 	#ifdef _WIN32
-		#include "ae_ws2.c"
+        #ifdef AE_USING_IOCP
+            #include "ae_iocp.c"
+        #else
+            #include "ae_ws2.c"
+        #endif
 	#else
 		#include "ae_select.c"
 	#endif
 	#endif
 #endif
 
+static _declspec(thread) aeEventLoop* _net_ae = NULL;
+
 aeEventLoop *aeCreateEventLoop(void) {
     aeEventLoop *eventLoop;
     int i;
-
+    if (_net_ae) return _net_ae;
     eventLoop = zmalloc(sizeof(*eventLoop));
     if (!eventLoop) return NULL;
     eventLoop->timeEventHead = NULL;
@@ -77,7 +83,12 @@ aeEventLoop *aeCreateEventLoop(void) {
      * vector with it. */
     for (i = 0; i < AE_SETSIZE; i++)
         eventLoop->events[i].mask = AE_NONE;
+    _net_ae = eventLoop;
     return eventLoop;
+}
+
+aeEventLoop* aeGetCurEventLoop(void) {
+    return _net_ae;
 }
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
@@ -90,24 +101,37 @@ void aeStop(aeEventLoop *eventLoop) {
 }
 
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData)
-{
+        aeFileProc *proc, void *clientData) {
     if (fd >= AE_SETSIZE) return AE_ERR;
     aeFileEvent *fe = &eventLoop->events[fd];
-
+#ifdef AE_USING_IOCP
+    if (aeApiAddEventEx(eventLoop, fd, mask, clientData) == -1)
+        return AE_ERR;
+#else
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
+#endif
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
+#ifdef AE_USING_IOCP
+    if (mask & AE_ACCEPT)   fe->wfileProc = proc;
+#endif
     fe->clientData = clientData;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
 }
 
-void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
-{
+int aeCreateAcceptEvent(aeEventLoop* eventLoop, int fd, aeFileProc* proc, void* clientData) {
+#ifdef AE_USING_IOCP
+    return aeCreateFileEvent(eventLoop, fd, AE_ACCEPT, proc, clientData);
+#else
+    return aeCreateFileEvent(eventLoop, fd, AE_READABLE, proc, clientData);
+#endif
+}
+
+void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (fd >= AE_SETSIZE) return;
     aeFileEvent *fe = &eventLoop->events[fd];
 
@@ -124,8 +148,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeApiDelEvent(eventLoop, fd, mask);
 }
 
-static void aeGetTime(long *seconds, long *milliseconds)
-{
+static void aeGetTime(long *seconds, long *milliseconds) {
 #ifdef _WIN32
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
@@ -173,8 +196,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
 
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc)
-{
+        aeEventFinalizerProc *finalizerProc) {
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
@@ -190,8 +212,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     return id;
 }
 
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
-{
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id) {
     aeTimeEvent *te, *prev = NULL;
 
     te = eventLoop->timeEventHead;
@@ -223,8 +244,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
-static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
-{
+static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop) {
     aeTimeEvent *te = eventLoop->timeEventHead;
     aeTimeEvent *nearest = NULL;
 
@@ -302,8 +322,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * the events that's possible to process without to wait are processed.
  *
  * The function returns the number of events processed. */
-int aeProcessEvents(aeEventLoop *eventLoop, int flags)
-{
+int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
@@ -360,10 +379,20 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
+#ifdef AE_USING_IOCP
+            if (fe->mask & mask & AE_ACCEPT) {
+                rfired = 1;
+                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
+            } else if (fe->mask & mask & AE_READABLE) {
+                rfired = 1;
+                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
+            }
+#else
             if (fe->mask & mask & AE_READABLE) {
                 rfired = 1;
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
             }
+#endif
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!rfired || fe->wfileProc != fe->rfileProc)
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
@@ -411,10 +440,26 @@ void aeMain(aeEventLoop *eventLoop) {
     }
 }
 
+void aeFramePoll(aeEventLoop* eventLoop) {
+    if (!eventLoop->stop) {
+        if (eventLoop->beforesleep != NULL)
+            eventLoop->beforesleep(eventLoop);
+
+        aeProcessEvents(eventLoop, AE_ALL_EVENTS | AE_DONT_WAIT);
+    }
+}
+
 char *aeGetApiName(void) {
     return aeApiName();
 }
 
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep) {
     eventLoop->beforesleep = beforesleep;
+}
+
+int aePostAccept(int socket, void* overlapped) {
+#ifdef AE_USING_IOCP
+    return aePostIocpAccept(socket, overlapped);
+#endif
+    return 0;
 }

@@ -221,8 +221,7 @@ int anetResolve(char *err, char *host, char *ipbuf)
     return ANET_OK;
 }
 
-static int anetCreateSocket(char *err, int domain)
-{
+static int anetCreateSocket(char *err, int domain) {
     // 初始化 Winsock（仅首次调用时生效）
     static int wsa_inited = 0;
     if (!wsa_inited) {
@@ -425,6 +424,80 @@ int anetRead(int fd, char *buf, int count)
     return totlen;
 }
 
+int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
+    fd_set rfds;
+    struct timeval tv;
+    int retval, nread = 0;
+
+    while (nread < count) {
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+
+        retval = select(fd + 1, &rfds, NULL, NULL, &tv);
+
+        // 安全处理select返回值
+        if (retval == -1) {
+#ifdef _WIN32
+            int error = WSAGetLastError();
+            if (error == WSAEINTR) {
+                // 被中断，可以继续
+                return nread > 0 ? nread : -1;;
+            }
+            // std::cerr << "select error: " << error << std::endl;
+#else
+            if (errno == EINTR) {
+                // 被信号中断，可以继续
+                return nread > 0 ? nread : -1;;
+            }
+            perror("select error");
+#endif
+            return nread > 0 ? nread : -1;;
+        } else if (retval== 0) {
+            // 超时，正常情况
+            return nread>0?nread:-1;
+        }
+
+        // Data is available, read it
+        int bytes_to_read = count - nread;
+#ifdef _WIN32
+        int bytes_read = recv(fd, buf + nread, bytes_to_read, 0);
+#else
+        int bytes_read = read(fd, buf + nread, bytes_to_read);
+#endif
+
+        if (bytes_read <= 0) {
+#ifdef _WIN32
+            int err_code = WSAGetLastError();
+            if (err_code == WSAEWOULDBLOCK)
+                break;  // 没有更多数据
+            else if (err_code == WSAEINTR)
+                continue;
+            else if (err_code == WSAECONNRESET)
+                return 0; // 连接被重置
+            else if (err_code == WSAENETRESET)
+                return 0; // 连接被重置
+#else
+            if (errno == EINTR)
+                continue;
+            else if (errno == EAGAIN || errno == EWOULDBLOCK)
+                if (nread > 0)
+                    break; // 没有更多数据
+                else if (err_code == ECONNRESET)
+                    return 0;   // 连接被重置 - 断线
+                else if (err_code == ENETRESET)
+                    return 0;   // 连接被重置-切换网络等原因  
+#endif
+            return -1; // read error
+        }
+
+        nread += bytes_read;
+    }
+
+    return nread;
+}
 
 /* Like write(2) but make sure 'count' is read before to return
  * (unless error is encountered) */
@@ -624,6 +697,8 @@ int anetPeerToString(int fd, char *ip, int *port)
     if (port) *port = ntohs(sa.sin_port);
     return 0;
 }
+
+
 
 int anetCloseSocket(int fd)
 {
