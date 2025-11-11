@@ -1,16 +1,15 @@
 CC = gcc
 CXX = g++
-CFLAGS = -Wall -Wunused-function -g -std=c99 -D HAVE_EPOLL -g -I . 
-CXXFLAGS = -Wall -Wunused-function -g -std=c++11 -I .
-
+CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -fcoroutines -D__cpp_coroutines=201902L -Wall -Wextra -I .
+CFLAGS = -Wall -Wextra -I .
 # 定义链接选项变量，默认为空
-LDFLAGS =
+LDFLAGS = 
 
 # 判断是否为 Windows 系统，是的话添加 -lws2_32
 ifeq ($(OS),Windows_NT)
     LDFLAGS += -lws2_32
 else
-	# LDFLAGS += -lpthread
+	LDFLAGS += -lpthread
 endif
 
 # 构建目录
