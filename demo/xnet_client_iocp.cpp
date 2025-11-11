@@ -10,6 +10,10 @@
 #include "zmalloc.h"
 #include "coroutine.h"
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 void xnet_sleep(unsigned int milliseconds) {  // 重命名避免与标准库冲突
 #ifdef _WIN32
     Sleep(milliseconds);
