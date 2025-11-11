@@ -48,20 +48,21 @@
 	#include "ae_epoll.c"
 #else
 	#ifdef HAVE_KQUEUE
-	#include "ae_kqueue.c"
+	    #include "ae_kqueue.c"
 	#else
-	#ifdef _WIN32
-        #ifdef AE_USING_IOCP
-            #include "ae_iocp.c"
-        #else
-            #include "ae_ws2.c"
-        #endif
-	#else
-		#include "ae_select.c"
-	#endif
+	    #ifdef _WIN32
+            #ifdef AE_USING_IOCP
+                #include "ae_iocp.c"
+            #else
+                #include "ae_ws2.c"
+            #endif
+	    #else
+		    #include "ae_select.c"
+	    #endif
 	#endif
 #endif
 
+/* main aeEventLoop */
 static _declspec(thread) aeEventLoop* _net_ae = NULL;
 
 aeEventLoop *aeCreateEventLoop(void) {
@@ -70,11 +71,19 @@ aeEventLoop *aeCreateEventLoop(void) {
     if (_net_ae) return _net_ae;
     eventLoop = zmalloc(sizeof(*eventLoop));
     if (!eventLoop) return NULL;
+    memset(eventLoop, 0x00, sizeof(*eventLoop));
+    
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
+    eventLoop->efhead = 0;
+
+    for (int i = 0; i < AE_SETSIZE - 1; i++) {
+        eventLoop->events[i].slot = i + 1;
+    }
+
     if (aeApiCreate(eventLoop) == -1) {
         zfree(eventLoop);
         return NULL;
@@ -88,6 +97,8 @@ aeEventLoop *aeCreateEventLoop(void) {
 }
 
 aeEventLoop* aeGetCurEventLoop(void) {
+    if (!_net_ae)
+        aeCreateEventLoop();
     return _net_ae;
 }
 
@@ -101,51 +112,47 @@ void aeStop(aeEventLoop *eventLoop) {
 }
 
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData) {
-    if (fd >= AE_SETSIZE) return AE_ERR;
-    aeFileEvent *fe = &eventLoop->events[fd];
-#ifdef AE_USING_IOCP
-    if (aeApiAddEventEx(eventLoop, fd, mask, clientData) == -1)
+    aeFileProc *proc, void *clientData, aeFileEvent** ev) {
+    //if (fd >= AE_SETSIZE) return AE_ERR;
+    if (eventLoop->efhead == -1) return AE_ERR;
+
+    aeFileEvent *fe = &eventLoop->events[eventLoop->efhead];
+    eventLoop->efhead = fe->slot;
+    *ev = fe;
+
+    if (aeApiAddEvent(eventLoop, fd, mask, fe) == -1)
         return AE_ERR;
-#else
-    if (aeApiAddEvent(eventLoop, fd, mask) == -1)
-        return AE_ERR;
-#endif
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
-#ifdef AE_USING_IOCP
-    if (mask & AE_ACCEPT)   fe->wfileProc = proc;
-#endif
     fe->clientData = clientData;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
 }
 
-int aeCreateAcceptEvent(aeEventLoop* eventLoop, int fd, aeFileProc* proc, void* clientData) {
-#ifdef AE_USING_IOCP
-    return aeCreateFileEvent(eventLoop, fd, AE_ACCEPT, proc, clientData);
-#else
-    return aeCreateFileEvent(eventLoop, fd, AE_READABLE, proc, clientData);
-#endif
-}
-
-void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask) {
-    if (fd >= AE_SETSIZE) return;
-    aeFileEvent *fe = &eventLoop->events[fd];
-
+void aeDeleteFileEvent(aeEventLoop* eventLoop, int fd, aeFileEvent* fe, int mask) {
     if (fe->mask == AE_NONE) return;
-    fe->mask = fe->mask & (~mask);
-    if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
-        /* Update the max fd */
-        int j;
 
-        for (j = eventLoop->maxfd-1; j >= 0; j--)
-            if (eventLoop->events[j].mask != AE_NONE) break;
-        eventLoop->maxfd = j;
+    fe->mask = fe->mask & (~mask);
+    if (fe->mask == AE_NONE) {
+        if (fd == eventLoop->maxfd) {
+            /* Update the max fd */
+            int j;
+
+            for (j = eventLoop->maxfd - 1; j >= 0; j--)
+                if (eventLoop->events[j].mask != AE_NONE) break;
+            eventLoop->maxfd = j;
+        }
+        aeApiDelEvent(eventLoop, fd, mask);
+
+        // swap to free node
+        if (fe->slot != eventLoop->efhead) {
+            short int slot = fe->slot;
+            fe->slot = eventLoop->efhead;
+            eventLoop->efhead = slot;
+        }
     }
-    aeApiDelEvent(eventLoop, fd, mask);
 }
 
 static void aeGetTime(long *seconds, long *milliseconds) {
@@ -153,22 +160,15 @@ static void aeGetTime(long *seconds, long *milliseconds) {
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
 
-    // 转换为 64 位整数便于计算
     ULARGE_INTEGER uli;
     uli.LowPart = ft.dwLowDateTime;
     uli.HighPart = ft.dwHighDateTime;
 
-    // 1601-01-01 到 1970-01-01 的时间差（秒）
     const unsigned long long EPOCH_DIFF = 11644473600ULL;
-    // 1 秒 = 10,000,000 个 100 纳秒单位
     const unsigned long long HUNDRED_NS_PER_SEC = 10000000ULL;
-    // 1 微秒 = 10 个 100 纳秒单位
     const unsigned long long HUNDRED_NS_PER_USEC = 10ULL;
-
-    // 计算相对于 Unix 时间戳（1970-01-01）的 100 纳秒数
     unsigned long long total_hundred_ns = uli.QuadPart - EPOCH_DIFF * HUNDRED_NS_PER_SEC;
 
-    // 转换为秒和微秒
     *seconds = (long)(total_hundred_ns / HUNDRED_NS_PER_SEC);
     *milliseconds = (long)((total_hundred_ns % HUNDRED_NS_PER_SEC) / HUNDRED_NS_PER_USEC);
 #else
@@ -371,31 +371,22 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
+            aeFileEvent* fe = eventLoop->fired[j].fe;// &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            int trans = eventLoop->fired[j].trans;
             int rfired = 0;
 
-	    /* note the fe->mask & mask & ... code: maybe an already processed
+	        /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
-#ifdef AE_USING_IOCP
-            if (fe->mask & mask & AE_ACCEPT) {
-                rfired = 1;
-                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
-            } else if (fe->mask & mask & AE_READABLE) {
-                rfired = 1;
-                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
-            }
-#else
             if (fe->mask & mask & AE_READABLE) {
                 rfired = 1;
-                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
+                fe->rfileProc(eventLoop, fd, fe->clientData, mask, trans);
             }
-#endif
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!rfired || fe->wfileProc != fe->rfileProc)
-                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fe->wfileProc(eventLoop, fd, fe->clientData, mask, trans);
             }
             processed++;
         }
@@ -455,11 +446,4 @@ char *aeGetApiName(void) {
 
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep) {
     eventLoop->beforesleep = beforesleep;
-}
-
-int aePostAccept(int socket, void* overlapped) {
-#ifdef AE_USING_IOCP
-    return aePostIocpAccept(socket, overlapped);
-#endif
-    return 0;
 }

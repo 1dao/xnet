@@ -15,6 +15,7 @@
     <ClCompile Include="zmalloc.c" />
     <ClCompile Include="coroutine.cpp" />
     <ClCompile Include="ae_iocp.c" />
+    <ClCompile Include="achannel.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
@@ -24,5 +25,6 @@
     <ClInclude Include="response.h" />
     <ClInclude Include="zmalloc.h" />
     <ClInclude Include="coroutine.h" />
+    <ClInclude Include="achannel.h" />
   </ItemGroup>
 </Project>

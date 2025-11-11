@@ -29,7 +29,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
-static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
+static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* fe) {
     aeApiState *state = eventLoop->apidata;
     struct kevent ke;
     

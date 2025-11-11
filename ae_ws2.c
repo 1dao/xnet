@@ -3,11 +3,11 @@
  * Released under the BSD license. See the COPYING file for more info. */
 
 #include <string.h>
-#include <winsock2.h>   // Ìá¹©SOCKET¡¢FD_*ºê¡¢selectµÈWinsockÏà¹Ø¶¨Òå
-#include <windows.h>    // Ìá¹©HANDLE¡¢INVALID_HANDLE_VALUE¡¢PeekNamedPipeµÈWindows API
-#include <io.h>         // Ìá¹©_get_osfhandleº¯Êı
-#include "ae.h"         // Ìá¹©aeEventLoop¡¢aeFileEventµÈÊÂ¼şÑ­»·Ïà¹Ø½á¹¹ºÍAE_*ºê
-#include "zmalloc.h"    // Ìá¹©zmalloc¡¢zfreeÄÚ´æ·ÖÅäº¯Êı
+#include <winsock2.h>   // æä¾›SOCKETã€FD_*å®ã€selectç­‰Winsockç›¸å…³å®šä¹‰
+#include <windows.h>    // æä¾›HANDLEã€INVALID_HANDLE_VALUEã€PeekNamedPipeç­‰Windows API
+#include <io.h>         // æä¾›_get_osfhandleå‡½æ•°
+#include "ae.h"         // æä¾›aeEventLoopã€aeFileEventç­‰äº‹ä»¶å¾ªç¯ç›¸å…³ç»“æ„å’ŒAE_*å®
+#include "zmalloc.h"    // æä¾›zmallocã€zfreeå†…å­˜åˆ†é…å‡½æ•°
 //#include "win32fixes.h"
 
 typedef struct aeApiState {
@@ -36,7 +36,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(eventLoop->apidata);
 }
 
-static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
+static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* fe) {
     aeApiState *state = eventLoop->apidata;
 	
     if (mask & AE_PIPE) {

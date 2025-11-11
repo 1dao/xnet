@@ -56,11 +56,6 @@
 
 #include "anet.h"
 
-// Windows 下缺少 ssize_t 定义，手动补充
-// #ifdef _WIN32
-// typedef int ssize_t;
-// #endif
-
 static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
@@ -71,11 +66,9 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
-// Windows 下获取错误信息字符串
 static const char* anetStrError(int code, char *errbuf, size_t errbuf_len)
 {
 #ifdef _WIN32
-    // 使用 FormatMessage 获取 Windows 错误信息
     DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
     DWORD len = FormatMessageA(flags, NULL, code, 0, errbuf, (DWORD)errbuf_len, NULL);
     if (len == 0) {
@@ -110,8 +103,6 @@ static int anetWSAInit(char *err)
 int anetNonBlock(char *err, int fd)
 {
 #ifdef _WIN32
-
-    // Windows 使用 ioctlsocket 设置非阻塞模式
     u_long mode = 1;  // 1 表示非阻塞，0 表示阻塞
     if (ioctlsocket(fd, FIONBIO, &mode) == SOCKET_ERROR) {
         char errbuf[ANET_ERR_LEN];
@@ -120,7 +111,6 @@ int anetNonBlock(char *err, int fd)
         return ANET_ERR;
     }
 #else
-    // POSIX 系统使用 fcntl
     int flags;
     if ((flags = fcntl(fd, F_GETFL)) == -1) {
         anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
@@ -196,7 +186,6 @@ int anetResolve(char *err, char *host, char *ipbuf)
     sa.sin_family = AF_INET;
 
 #ifdef _WIN32
-    // Windows 推荐使用 inet_pton 替代 inet_aton（后者已过时）
     if (inet_pton(AF_INET, host, &sa.sin_addr) != 1) {
 #else
     if (inet_aton(host, &sa.sin_addr) == 0) {
@@ -222,7 +211,6 @@ int anetResolve(char *err, char *host, char *ipbuf)
 }
 
 static int anetCreateSocket(char *err, int domain) {
-    // 初始化 Winsock（仅首次调用时生效）
     static int wsa_inited = 0;
     if (!wsa_inited) {
         if (anetWSAInit(err) != ANET_OK) {
@@ -247,7 +235,6 @@ static int anetCreateSocket(char *err, int domain) {
     }
 #endif
 
-    // 设置 SO_REUSEADDR 选项
 #ifdef _WIN32
     if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on)) == SOCKET_ERROR) {
         char errbuf[ANET_ERR_LEN];
@@ -438,7 +425,6 @@ int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
 
         retval = select(fd + 1, &rfds, NULL, NULL, &tv);
 
-        // 安全处理select返回值
         if (retval == -1) {
 #ifdef _WIN32
             int error = WSAGetLastError();
@@ -501,8 +487,7 @@ int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
 
 /* Like write(2) but make sure 'count' is read before to return
  * (unless error is encountered) */
-int anetWrite(int fd, char *buf, int count)
-{
+int anetWrite(int fd, char *buf, int count) {
     int nwritten, totlen = 0;
     while (totlen != count) {
 #ifdef _WIN32
@@ -697,8 +682,6 @@ int anetPeerToString(int fd, char *ip, int *port)
     if (port) *port = ntohs(sa.sin_port);
     return 0;
 }
-
-
 
 int anetCloseSocket(int fd)
 {

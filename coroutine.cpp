@@ -166,6 +166,9 @@ void CoroutineScheduler::process_waiting_tasks() {
     }
 }
 
+void coroutine_init() {
+}
+
 void coroutine_wait_read(int fd, long long timeout_ms) {
     CoroutineTask* task = coroutine_scheduler.cur;
     return coroutine_scheduler.co_wait_read(fd, task, timeout_ms);

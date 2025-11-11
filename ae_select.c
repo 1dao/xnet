@@ -25,7 +25,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(eventLoop->apidata);
 }
 
-static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
+static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* fe) {
     aeApiState *state = eventLoop->apidata;
 
     if (mask & AE_READABLE) FD_SET(fd,&state->rfds);

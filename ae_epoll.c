@@ -26,7 +26,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
-static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
+static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* fe) {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee;
     /* If the fd was already monitored for some event, we need a MOD
@@ -40,6 +40,9 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.u64 = 0; /* avoid valgrind warning */
     ee.data.fd = fd;
+    ee.data.u64 = 0;
+    ee.data.ptr = (void*)fe;
+
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
     return 0;
 }
@@ -81,6 +84,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
             eventLoop->fired[j].fd = e->data.fd;
             eventLoop->fired[j].mask = mask;
+            eventLoop->fired[j].fe = (aeFileEvent*)e->data.ptr;
         }
     }
     return numevents;

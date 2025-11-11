@@ -46,34 +46,33 @@ extern "C" {
 #define AE_READABLE 1
 #define AE_WRITABLE 2
 #define AE_PIPE     4
-#define AE_ACCEPT   8  // for win io completion event
 
 #define AE_FILE_EVENTS 1
 #define AE_TIME_EVENTS 2
 #define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
 #define AE_DONT_WAIT 4
-
 #define AE_NOMORE -1
 
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)
 #ifdef _WIN32
-    //#define AE_USING_IOCP
+    #define AE_USING_IOCP
 #endif
 struct aeEventLoop;
 
-/* Types and data structures */
-typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
-typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
-typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
-typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
+/* Types and data structures, trans for iocp */
+typedef int     aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask, int trans);
+typedef int     aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
+typedef void    aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
+typedef void    aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE) */
-    aeFileProc *rfileProc;
-    aeFileProc *wfileProc;
-    void *clientData;
+    short int       slot;       /* for free list */
+    short int       mask;       /* one of AE_(READABLE|WRITABLE) */
+    aeFileProc      *rfileProc; /* for recv packet */
+    aeFileProc      *wfileProc; /* for send packet */
+    void            *clientData;
 } aeFileEvent;
 
 /* Time event structure */
@@ -91,14 +90,18 @@ typedef struct aeTimeEvent {
 typedef struct aeFiredEvent {
     int fd;
     int mask;
+    int trans;
+    aeFileEvent* fe;
 } aeFiredEvent;
 
 /* State of an event based program */
 typedef struct aeEventLoop {
     int maxfd;
     long long timeEventNextId;
-    aeFileEvent events[AE_SETSIZE]; /* Registered events */
-    aeFiredEvent fired[AE_SETSIZE]; /* Fired events */
+    aeFileEvent events[AE_SETSIZE];     /* Registered events */
+    int         efhead;                 /* freehead */
+
+    aeFiredEvent fired[AE_SETSIZE];     /* Fired events */
     aeTimeEvent *timeEventHead;
     int stop;
     void *apidata; /* This is used for polling API specific data */
@@ -110,11 +113,9 @@ aeEventLoop *aeCreateEventLoop(void);
 aeEventLoop *aeGetCurEventLoop(void);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
-int aeCreateAcceptEvent(aeEventLoop* eventLoop, int fd, 
-    aeFileProc* proc, void* clientData);
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData);
-void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
+        aeFileProc *proc, void *clientData, aeFileEvent** ev);
+void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, aeFileEvent* fe, int mask);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc);
@@ -125,7 +126,6 @@ void aeMain(aeEventLoop *eventLoop);
 void aeFramePoll(aeEventLoop* eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
-int aePostAccept(int socket, void* overlapped);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -124,6 +124,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ae.c" />
+    <ClCompile Include="achannel.c" />
     <ClCompile Include="ae_iocp.c" />
     <ClCompile Include="ae_ws2.c" />
     <ClCompile Include="anet.c">
@@ -136,6 +137,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
+    <ClInclude Include="achannel.h" />
     <ClInclude Include="anet.h" />
     <ClInclude Include="coroutine.h" />
     <ClInclude Include="fmacros.h" />

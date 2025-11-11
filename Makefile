@@ -9,7 +9,7 @@ ifeq ($(OS),Windows_NT)
     LDFLAGS += -lws2_32
 endif
 
-OBJS = ae.o  anet.o request.o response.o zmalloc.o
+OBJS = ae.o  anet.o request.o response.o zmalloc.o achannel.o coroutine.o
 SVR_OBJS= svr.o
 
 all : svr
