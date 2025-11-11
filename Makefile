@@ -1,5 +1,7 @@
 CC = gcc
+CXX = g++
 CFLAGS = -Wall -Wunused-function -g -std=c99 -D HAVE_EPOLL -g -I . 
+CXXFLAGS = -Wall -Wunused-function -g -I .
 
 # 定义链接选项变量，默认为空
 LDFLAGS =
@@ -16,51 +18,61 @@ OBJS_DIR = $(BUILD_DIR)/objs
 # 源文件
 SRCS = ae.c anet.c request.c response.c zmalloc.c achannel.c
 SVR_SRCS = demo/xnet_svr_iocp.c
-CLI_SRCS = demo/xnet_client.c
+CLI_SRCS = demo/xnet_client.cpp  # 改为 .cpp
 
 # 目标文件（在构建目录中）
 OBJS = $(addprefix $(OBJS_DIR)/, $(SRCS:.c=.o))
 SVR_OBJS = $(addprefix $(OBJS_DIR)/, $(SVR_SRCS:.c=.o))
-CLI_OBJS = $(addprefix $(OBJS_DIR)/, $(CLI_SRCS:.c=.o))
+CLI_OBJS = $(addprefix $(OBJS_DIR)/, $(CLI_SRCS:.cpp=.o))  # 改为 .cpp=.o
 
 # 可执行文件输出目录
-TARGET_DIR = $(BUILD_DIR)/bin
+TARGET_DIR = bin
 
 all : $(TARGET_DIR)/svr $(TARGET_DIR)/client
 
 # 创建必要的目录
 $(shell mkdir -p $(OBJS_DIR)/demo $(TARGET_DIR))
 
-# 服务器程序
+# 服务器程序（使用 gcc 链接）
 $(TARGET_DIR)/svr : $(OBJS) $(SVR_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# 客户端程序
+# 客户端程序（使用 g++ 链接，因为包含 C++ 代码）
 $(TARGET_DIR)/client : $(OBJS) $(CLI_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-# 编译规则：将所有 .c 文件编译到构建目录
+# C 文件编译规则
 $(OBJS_DIR)/%.o : %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ -c $<
 
-# 编译 demo 目录下的文件
+# demo 目录下的 C 文件编译规则
 $(OBJS_DIR)/demo/%.o : demo/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ -c $<
+
+# C++ 文件编译规则
+$(OBJS_DIR)/%.o : %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
+
+# demo 目录下的 C++ 文件编译规则
+$(OBJS_DIR)/demo/%.o : demo/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
 
 clean :
 	rm -rf $(BUILD_DIR)
 
 # 单独编译客户端的快捷目标
-client-only: $(TARGET_DIR)/client
+cli: $(TARGET_DIR)/client
 
 # 单独编译服务器的快捷目标  
-svr-only: $(TARGET_DIR)/svr
+svr: $(TARGET_DIR)/svr
 
 # 显示目录结构
 tree:
 	@echo "Build directory structure:"
 	@find $(BUILD_DIR) -type f -o -type d | sort
 
-.PHONY: all clean client-only svr-only tree
+.PHONY: all clean cli svr tree
