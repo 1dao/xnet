@@ -44,7 +44,7 @@ enum {
 
 struct request *request_new(char *querybuf) {
     struct request *req;
-    req=calloc(1, sizeof(struct request));
+    req=(struct request*)calloc(1, sizeof(struct request));
     req->querybuf = querybuf;
     return req;
 }

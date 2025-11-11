@@ -1,5 +1,5 @@
-CC = gcc 
-CFLAGS = -Wall -g -std=c99
+CC = gcc
+CFLAGS = -Wall -Wunused-function -g -std=c99 -D HAVE_EPOLL -g -I . 
 
 # 定义链接选项变量，默认为空
 LDFLAGS =
@@ -9,8 +9,8 @@ ifeq ($(OS),Windows_NT)
     LDFLAGS += -lws2_32
 endif
 
-OBJS = ae.o  anet.o request.o response.o zmalloc.o achannel.o coroutine.o
-SVR_OBJS= svr.o
+OBJS = ae.o anet.o request.o response.o zmalloc.o achannel.o
+SVR_OBJS= demo/xnet_svr_iocp.o
 
 all : svr
 

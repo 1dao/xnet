@@ -8,9 +8,17 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <mswsock.h>
+#else
+#include <stdio.h>
+#endif
+
+#if !defined(_WIN32)
+#include <sys/socket.h>
+#include <netinet/in.h>
 #endif
 
 #include "achannel.h"
+#include "anet.h"
 
 #define CHANNEL_BUFF_MAX (2*1024*1024)
 #define container_of(ptr, type, member) \
@@ -327,7 +335,7 @@ int aeProcWrite(struct aeEventLoop* eventLoop, int fd, void* client_data, int ma
     return AE_OK;
 }
 
-inline int aeProcEvent(struct aeEventLoop* eventLoop, int fd, void* client_data, int mask, int trans) {
+int aeProcEvent(struct aeEventLoop* eventLoop, int fd, void* client_data, int mask, int trans) {
     if (mask & AE_READABLE) {
         return aeProcRead(eventLoop, client_data, mask, trans);
     } else if (mask & AE_WRITABLE) {
@@ -375,7 +383,7 @@ int aeProcAccept(struct aeEventLoop* eventLoop, int fd, void* client_data, int m
 #else
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
-    int cfd = anetAccept(NULL, fd, (struct sockaddr*)&sa, &salen);
+    int cfd = anetTcpAccept(NULL, fd, (struct sockaddr*)&sa, &salen);
 
     if (cfd == ANET_ERR) {
         printf("Accept error on fd: %d\n", fd);

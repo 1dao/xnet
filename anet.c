@@ -28,13 +28,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _DEFAULT_SOURCE  // æ·»åŠ è¿™è¡Œæ¥é¿å… _BSD_SOURCE è­¦å‘Š
+
 #include "fmacros.h"
 
 #ifdef _WIN32
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <windows.h>
-    #pragma comment(lib, "ws2_32.lib")  // Á´½Ó Winsock ¿â
+    #pragma comment(lib, "ws2_32.lib")  // é“¾æ¥ Winsock åº“
 
 #else
     #include <sys/types.h>
@@ -56,6 +58,11 @@
 
 #include "anet.h"
 
+// Windows ä¸‹ç¼ºå°‘ ssize_t å®šä¹‰ï¼Œæ‰‹åŠ¨è¡¥å……
+// #ifdef _WIN32
+// typedef int ssize_t;
+// #endif
+
 static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
@@ -66,27 +73,28 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
+// Windows ä¸‹è·å–é”™è¯¯ä¿¡æ¯å­—ç¬¦ä¸²
+#ifdef _WIN32
 static const char* anetStrError(int code, char *errbuf, size_t errbuf_len)
 {
-#ifdef _WIN32
+    // ä½¿ç”¨ FormatMessage è·å– Windows é”™è¯¯ä¿¡æ¯
     DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
     DWORD len = FormatMessageA(flags, NULL, code, 0, errbuf, (DWORD)errbuf_len, NULL);
     if (len == 0) {
         snprintf(errbuf, errbuf_len, "Unknown error %d", code);
         return errbuf;
     }
-    // ÒÆ³ı½áÎ²µÄ»»ĞĞ·û
+    // ç§»é™¤ç»“å°¾çš„æ¢è¡Œç¬¦
     while (len > 0 && (errbuf[len-1] == '\r' || errbuf[len-1] == '\n')) {
         len--;
     }
     errbuf[len] = '\0';
     return errbuf;
-#else
-    return strerror(code);
-#endif
 }
+#endif
 
-// ³õÊ¼»¯ Winsock£¨½ö Windows ĞèÒª£©
+
+// Â³ÃµÃŠÂ¼Â»Â¯ WinsockÂ£Â¨Â½Ã¶ Windows ÃÃ¨Ã’ÂªÂ£Â©
 static int anetWSAInit(char *err)
 {
 #ifdef _WIN32
@@ -103,7 +111,7 @@ static int anetWSAInit(char *err)
 int anetNonBlock(char *err, int fd)
 {
 #ifdef _WIN32
-    u_long mode = 1;  // 1 ±íÊ¾·Ç×èÈû£¬0 ±íÊ¾×èÈû
+    u_long mode = 1;  // 1 Â±Ã­ÃŠÂ¾Â·Ã‡Ã—Ã¨ÃˆÃ»Â£Â¬0 Â±Ã­ÃŠÂ¾Ã—Ã¨ÃˆÃ»
     if (ioctlsocket(fd, FIONBIO, &mode) == SOCKET_ERROR) {
         char errbuf[ANET_ERR_LEN];
         anetSetError(err, "ioctlsocket(FIONBIO): %s", 
@@ -300,7 +308,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
     if (ret == SOCKET_ERROR) {
         int err_code = WSAGetLastError();
         if (err_code == WSAEINPROGRESS && (flags & ANET_CONNECT_NONBLOCK)) {
-            return s;  // ·Ç×èÈûÄ£Ê½ÏÂÁ¬½ÓÕıÔÚ½øĞĞ
+            return s;  // Â·Ã‡Ã—Ã¨ÃˆÃ»Ã„Â£ÃŠÂ½ÃÃ‚ÃÂ¬Â½Ã“Ã•Ã½Ã”ÃšÂ½Ã¸ÃÃ
         }
         char errbuf[ANET_ERR_LEN];
         anetSetError(err, "connect: %s", anetStrError(err_code, errbuf, sizeof(errbuf)));
@@ -380,30 +388,30 @@ int anetRead(int fd, char *buf, int count)
 #else
         nread = read(fd, buf, count - totlen);
 #endif
-        if (nread == 0) return totlen;  // Á¬½Ó¹Ø±Õ
+        if (nread == 0) return totlen;  // ÃÂ¬Â½Ã“Â¹Ã˜Â±Ã•
         if (nread == -1) {
 #ifdef _WIN32
             int err_code = WSAGetLastError();
             if (err_code == WSAEWOULDBLOCK)
-                break;  // Ã»ÓĞ¸ü¶àÊı¾İ
+                break;  // æ²¡æœ‰æ›´å¤šæ•°æ®
             else if (err_code == WSAEINTR)
                 continue;
             else if (err_code == WSAECONNRESET)
-				return 0; // Á¬½Ó±»ÖØÖÃ
+                return 0; // è¿æ¥è¢«é‡ç½®
             else if (err_code == WSAENETRESET)
-                return 0; // Á¬½Ó±»ÖØÖÃ
+                return 0; // è¿æ¥è¢«é‡ç½®-åˆ‡æ¢ç½‘ç»œç­‰åŸå›   
 #else
             if (errno == EINTR)
                 continue;
-            else if (errno == EAGAIN || errno == EWOULDBLOCK)
+            else if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 if(totlen > 0)
-                    break; // Ã»ÓĞ¸ü¶àÊı¾İ
-            else if (err_code == ECONNRESET)
-                return 0;   // Á¬½Ó±»ÖØÖÃ - ¶ÏÏß
-            else if (err_code == ENETRESET)
-			    return 0;   // Á¬½Ó±»ÖØÖÃ-ÇĞ»»ÍøÂçµÈÔ­Òò  
+                    break; // æ²¡æœ‰æ›´å¤šæ•°æ®
+            } else if (errno == ECONNRESET)
+                return 0;   // è¿æ¥è¢«é‡ç½® - æ–­çº¿
+            else if (errno == ENETRESET)
+                return 0;   // è¿æ¥è¢«é‡ç½®-åˆ‡æ¢ç½‘ç»œç­‰åŸå›   
 #endif
-            return -1;  // ´íÎó
+            return -1;  // Â´Ã­ÃÃ³
         }
         totlen += nread;
         buf += nread;
@@ -425,25 +433,26 @@ int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
 
         retval = select(fd + 1, &rfds, NULL, NULL, &tv);
 
+        // å®‰å…¨å¤„ç†selectè¿”å›å€¼
         if (retval == -1) {
 #ifdef _WIN32
             int error = WSAGetLastError();
             if (error == WSAEINTR) {
-                // ±»ÖĞ¶Ï£¬¿ÉÒÔ¼ÌĞø
-                return nread > 0 ? nread : -1;;
+                // è¢«ä¸­æ–­ï¼Œå¯ä»¥ç»§ç»­
+                return nread > 0 ? nread : -1;
             }
             // std::cerr << "select error: " << error << std::endl;
 #else
             if (errno == EINTR) {
-                // ±»ĞÅºÅÖĞ¶Ï£¬¿ÉÒÔ¼ÌĞø
-                return nread > 0 ? nread : -1;;
+                // è¢«ä¿¡å·ä¸­æ–­ï¼Œå¯ä»¥ç»§ç»­
+                return nread > 0 ? nread : -1;
             }
             perror("select error");
 #endif
-            return nread > 0 ? nread : -1;;
-        } else if (retval== 0) {
-            // ³¬Ê±£¬Õı³£Çé¿ö
-            return nread>0?nread:-1;
+            return nread > 0 ? nread : -1;
+        } else if (retval == 0) {
+            // è¶…æ—¶ï¼Œæ­£å¸¸æƒ…å†µ
+            return nread > 0 ? nread : -1;
         }
 
         // Data is available, read it
@@ -458,23 +467,25 @@ int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
 #ifdef _WIN32
             int err_code = WSAGetLastError();
             if (err_code == WSAEWOULDBLOCK)
-                break;  // Ã»ÓĞ¸ü¶àÊı¾İ
+                break;  // æ²¡æœ‰æ›´å¤šæ•°æ®
             else if (err_code == WSAEINTR)
                 continue;
             else if (err_code == WSAECONNRESET)
-                return 0; // Á¬½Ó±»ÖØÖÃ
+                return 0; // è¿æ¥è¢«é‡ç½®
             else if (err_code == WSAENETRESET)
-                return 0; // Á¬½Ó±»ÖØÖÃ
+                return 0; // è¿æ¥è¢«é‡ç½®
 #else
-            if (errno == EINTR)
+            if (errno == EINTR) {
                 continue;
-            else if (errno == EAGAIN || errno == EWOULDBLOCK)
-                if (nread > 0)
-                    break; // Ã»ÓĞ¸ü¶àÊı¾İ
-                else if (err_code == ECONNRESET)
-                    return 0;   // Á¬½Ó±»ÖØÖÃ - ¶ÏÏß
-                else if (err_code == ENETRESET)
-                    return 0;   // Á¬½Ó±»ÖØÖÃ-ÇĞ»»ÍøÂçµÈÔ­Òò  
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (nread > 0) {
+                    break; // æ²¡æœ‰æ›´å¤šæ•°æ®
+                }
+            } else if (errno == ECONNRESET) {
+                return 0;   // è¿æ¥è¢«é‡ç½® - æ–­çº¿
+            } else if (errno == ENETRESET) {
+                return 0;   // è¿æ¥è¢«é‡ç½®-åˆ‡æ¢ç½‘ç»œç­‰åŸå› 
+            }
 #endif
             return -1; // read error
         }
@@ -500,7 +511,7 @@ int anetWrite(int fd, char *buf, int count) {
 #ifdef _WIN32
             int err_code = WSAGetLastError();
             if (err_code == WSAEWOULDBLOCK || err_code == WSAEINTR) {
-                continue;  // ·Ç×èÈûÄ£Ê½ÏÂÖØÊÔ
+                continue;  // Â·Ã‡Ã—Ã¨ÃˆÃ»Ã„Â£ÃŠÂ½ÃÃ‚Ã–Ã˜ÃŠÃ”
             }
 #endif
             return -1;
@@ -520,7 +531,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len)
         closesocket(s);
         return ANET_ERR;
     }
-    if (listen(s, 511) == SOCKET_ERROR) {  // 511 Îª×î´ó¼àÌı¶ÓÁĞ³¤¶È
+    if (listen(s, 511) == SOCKET_ERROR) {  // 511 ÃÂªÃ—Ã®Â´Ã³Â¼Ã ÃŒÃ½Â¶Ã“ÃÃÂ³Â¤Â¶Ãˆ
         char errbuf[ANET_ERR_LEN];
         anetSetError(err, "listen: %s", anetStrError(WSAGetLastError(), errbuf, sizeof(errbuf)));
         closesocket(s);
@@ -551,7 +562,7 @@ int anetTcpServer(char *err, int port, char *bindaddr) {
     memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
-    sa.sin_addr.s_addr = htonl(INADDR_ANY);  // °ó¶¨ËùÓĞÍø¿¨
+    sa.sin_addr.s_addr = htonl(INADDR_ANY);  // Â°Ã³Â¶Â¨Ã‹Ã¹Ã“ÃÃÃ¸Â¿Â¨
 
     if (bindaddr) {
 #ifdef _WIN32
@@ -608,7 +619,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
         if (fd == INVALID_SOCKET) {
             int err_code = WSAGetLastError();
             if (err_code == WSAEINTR)
-                continue;  // ±»ĞÅºÅÖĞ¶Ï£¬ÖØÊÔ
+                continue;  // Â±Â»ÃÃ…ÂºÃ…Ã–ÃÂ¶ÃÂ£Â¬Ã–Ã˜ÃŠÃ”
             char errbuf[ANET_ERR_LEN];
             anetSetError(err, "accept: %s", anetStrError(err_code, errbuf, sizeof(errbuf)));
             return ANET_ERR;

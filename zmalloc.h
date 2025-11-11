@@ -31,6 +31,8 @@
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

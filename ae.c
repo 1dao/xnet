@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <stdlib.h>
+#include <string.h>
 #ifndef _WIN32
 #include <sys/time.h>
 #include <unistd.h>
@@ -63,13 +64,17 @@
 #endif
 
 /* main aeEventLoop */
+#ifdef _WIN32
 static _declspec(thread) aeEventLoop* _net_ae = NULL;
+#else
+static __thread aeEventLoop* _net_ae = NULL;
+#endif
 
 aeEventLoop *aeCreateEventLoop(void) {
     aeEventLoop *eventLoop;
     int i;
     if (_net_ae) return _net_ae;
-    eventLoop = zmalloc(sizeof(*eventLoop));
+    eventLoop = (aeEventLoop*)zmalloc(sizeof(*eventLoop));
     if (!eventLoop) return NULL;
     memset(eventLoop, 0x00, sizeof(*eventLoop));
     
@@ -200,7 +205,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
-    te = zmalloc(sizeof(*te));
+    te = (aeTimeEvent *)zmalloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
     te->id = id;
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);

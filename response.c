@@ -35,7 +35,7 @@ struct response *response_new(int argc,int status)
 {
 	struct response *res;
 	res=calloc(1,sizeof(struct response));
-	res->argv=calloc(argc,sizeof(char*));
+	res->argv=(char**)calloc(argc,sizeof(char*));
 	res->argc=argc;
 	res->status=status;
 	return res;
