@@ -19,7 +19,6 @@ void sleep(unsigned int milliseconds) {
 #endif
 }
 
-// 协议包结构定义
 typedef struct {
     uint32_t pkg_len;       // 包长度4字节
     uint16_t protocol;      // 协议2字节
@@ -233,14 +232,6 @@ int on_close(struct aeChannel* s, char* buf, int len) {
 }
 
 int main(int argc, char* argv[]) {
-    //if (argc < 3) {
-    //    printf("使用方法: %s <服务器IP> <端口>\n", argv[0]);
-    //    return 1;
-    //}
-
-    //char* ip = argv[1];
-    //int port = atoi(argv[2]);
-
     const char* ip = "127.0.0.1";
     int port = 6379;
     char err[ANET_ERR_LEN];
@@ -261,14 +252,7 @@ int main(int argc, char* argv[]) {
 
     // using coroutine to handle client logic
     printf("连接服务器成功，开始协程客户端...\n");
-
-  const char* st = "这是测试数据";
-  //  if (send_msg(net_client, 1, true, st, strlen(st)) > 0) {
-  //      // 创建客户端协程任务
-		///*coroutine_add_task([fd]() { // 使用aePoll，不用协程等待
-  //          client_coroutine(fd);
-  //          });*/
-  //  }
+    const char* st = "这是测试数据";
 
     // 运行调度器
     while (running) {
@@ -276,16 +260,10 @@ int main(int argc, char* argv[]) {
         coroutine_update();
         sleep(500);
         if (send_msg(net_client, 1, true, st, strlen(st)) > 0) {
-            //// 创建客户端协程任务
-            //coroutine_add_task([fd]() {
-            //    client_coroutine(fd);
-            //    });
         }
     }
     // using a coroutine to handle client logic finish
 
-    // 关闭连接
-    // ae_channel_close(net_client);
     aeDeleteEventLoop(el);
     printf("客户端已关闭\n");
 
