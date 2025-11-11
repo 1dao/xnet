@@ -1,7 +1,7 @@
 CC = gcc
 CXX = g++
 CFLAGS = -Wall -Wunused-function -g -std=c99 -D HAVE_EPOLL -g -I . 
-CXXFLAGS = -Wall -Wunused-function -g -I .
+CXXFLAGS = -Wall -Wunused-function -g -std=c++11 -I .
 
 # 定义链接选项变量，默认为空
 LDFLAGS =
@@ -9,6 +9,8 @@ LDFLAGS =
 # 判断是否为 Windows 系统，是的话添加 -lws2_32
 ifeq ($(OS),Windows_NT)
     LDFLAGS += -lws2_32
+else
+	# LDFLAGS += -lpthread
 endif
 
 # 构建目录
@@ -18,7 +20,7 @@ OBJS_DIR = $(BUILD_DIR)/objs
 # 源文件
 SRCS = ae.c anet.c request.c response.c zmalloc.c achannel.c
 SVR_SRCS = demo/xnet_svr_iocp.c
-CLI_SRCS = demo/xnet_client.cpp  # 改为 .cpp
+CLI_SRCS = coroutine.cpp demo/xnet_client_iocp.cpp # 改为 .cpp  
 
 # 目标文件（在构建目录中）
 OBJS = $(addprefix $(OBJS_DIR)/, $(SRCS:.c=.o))
@@ -63,6 +65,7 @@ $(OBJS_DIR)/demo/%.o : demo/%.cpp
 
 clean :
 	rm -rf $(BUILD_DIR)
+	rm -rf bin
 
 # 单独编译客户端的快捷目标
 cli: $(TARGET_DIR)/client

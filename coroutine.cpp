@@ -1,8 +1,16 @@
 // coroutine.cpp
-#include "coroutine.h"
+//
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <sys/select.h>
+#include <unistd.h>
+#include <sys/time.h>
+#endif
 #include <algorithm>
-#include <iostream>
-#include <windows.h>
+
+#include "coroutine.h"
+
 
 class CoroutineTask;
 class CoroutineScheduler;

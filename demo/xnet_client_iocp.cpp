@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-
+#ifdef __linux__
+#include <unistd.h>  
+#endif
 #include <vector>
 
 #include "ae.h"
@@ -11,47 +13,47 @@
 #include "zmalloc.h"
 #include "coroutine.h"
 
-void sleep(unsigned int milliseconds) {
+void xnet_sleep(unsigned int milliseconds) {  // é‡å‘½åé¿å…ä¸æ ‡å‡†åº“å†²çª
 #ifdef _WIN32
     Sleep(milliseconds);
 #elif __linux__
-    usleep(milliseconds * 1000);  // usleep Ê¹ÓÃÎ¢Ãë
+    usleep(milliseconds * 1000);  // usleep ä½¿ç”¨å¾®ç§’
 #endif
 }
 
 typedef struct {
-    uint32_t pkg_len;       // °ü³¤¶È4×Ö½Ú
-    uint16_t protocol;      // Ğ­Òé2×Ö½Ú
-    uint8_t need_return;    // ÊÇ·ñ·µ»Ø1×Ö½Ú
-    uint8_t is_request;     // ÊÇÇëÇó»¹ÊÇ·µ»Ø1×Ö½Ú(1:ÇëÇó,0:·µ»Ø)
-    uint32_t pkg_id;        // Ğ­Òé°üID4×Ö½Ú
-    int param1;             // ²ÎÊı1ÕûĞÍ
-    // ²ÎÊı2¶ş½øÖÆÊı¾İ½ôËæÆäºó
+    uint32_t pkg_len;       // åŒ…é•¿åº¦4å­—èŠ‚
+    uint16_t protocol;      // åè®®2å­—èŠ‚
+    uint8_t need_return;    // æ˜¯å¦è¿”å›1å­—èŠ‚
+    uint8_t is_request;     // æ˜¯è¯·æ±‚è¿˜æ˜¯è¿”å›1å­—èŠ‚(1:è¯·æ±‚,0:è¿”å›)
+    uint32_t pkg_id;        // åè®®åŒ…ID4å­—èŠ‚
+    int param1;             // å‚æ•°1æ•´å‹
+    // å‚æ•°2äºŒè¿›åˆ¶æ•°æ®ç´§éšå…¶å
 } ProtocolPacket;
 
-// ¹¹½¨ÇëÇó°ü
+// æ„å»ºè¯·æ±‚åŒ…
 char* build_request_packet(uint16_t protocol, uint8_t need_return,
     uint32_t pkg_id, int param1,
     const char* param2, int param2_len,
     int* packet_len) {
-    // ¼ÆËã°ü×Ü³¤¶È£ºÍ·²¿³¤¶È + ²ÎÊı1³¤¶È + ²ÎÊı2³¤¶È
-    int header_len = sizeof(ProtocolPacket) - sizeof(int); // ¼õÈ¥param1µÄ´óĞ¡£¬ÒòÎªÒÑ¾­°üº¬ÔÚ½á¹¹ÖĞ
+    // è®¡ç®—åŒ…æ€»é•¿åº¦ï¼šå¤´éƒ¨é•¿åº¦ + å‚æ•°1é•¿åº¦ + å‚æ•°2é•¿åº¦
+    int header_len = sizeof(ProtocolPacket) - sizeof(int); // å‡å»param1çš„å¤§å°ï¼Œå› ä¸ºå·²ç»åŒ…å«åœ¨ç»“æ„ä¸­
     *packet_len = header_len + sizeof(int) + param2_len;
 
-    // ·ÖÅäÄÚ´æ
+    // åˆ†é…å†…å­˜
     char* packet = (char*)zmalloc(*packet_len);
     if (!packet) return NULL;
 
-    // Ìî³äÍ·²¿ĞÅÏ¢
+    // å¡«å……å¤´éƒ¨ä¿¡æ¯
     ProtocolPacket* pkg = (ProtocolPacket*)packet;
     pkg->pkg_len = *packet_len;
     pkg->protocol = protocol;
     pkg->need_return = need_return;
-    pkg->is_request = 1;  // ÇëÇó°ü
+    pkg->is_request = 1;  // è¯·æ±‚åŒ…
     pkg->pkg_id = pkg_id;
     pkg->param1 = param1;
 
-    // Ìî³ä²ÎÊı2
+    // å¡«å……å‚æ•°2
     if (param2 && param2_len > 0) {
         memcpy(packet + sizeof(ProtocolPacket), param2, param2_len);
     }
@@ -59,35 +61,35 @@ char* build_request_packet(uint16_t protocol, uint8_t need_return,
     return packet;
 }
 
-// ½âÎöÏìÓ¦°ü
+// è§£æå“åº”åŒ…
 int parse_response_packet(const char* response, int response_len,
     ProtocolPacket* pkg, char** param2, int* param2_len) {
     if (response_len < sizeof(ProtocolPacket)) {
-        printf("ÏìÓ¦°ü³¤¶È²»×ã\n");
+        printf("å“åº”åŒ…é•¿åº¦ä¸è¶³\n");
         return -1;
     }
 
-    // ¸´ÖÆÍ·²¿ĞÅÏ¢
+    // å¤åˆ¶å¤´éƒ¨ä¿¡æ¯
     memcpy(pkg, response, sizeof(ProtocolPacket));
 
-    // ÑéÖ¤°ü³¤¶È
+    // éªŒè¯åŒ…é•¿åº¦
     if (pkg->pkg_len != response_len) {
-        printf("ÏìÓ¦°ü°ü³¤¶È²»Æ¥Åä: %d vs %d\n", pkg->pkg_len, response_len);
+        printf("å“åº”åŒ…åŒ…é•¿åº¦ä¸åŒ¹é…: %d vs %d\n", pkg->pkg_len, response_len);
         return -1;
     }
 
-    // ÑéÖ¤ÊÇ·ñÎª·µ»Ø°ü
+    // éªŒè¯æ˜¯å¦ä¸ºè¿”å›åŒ…
     if (pkg->is_request != 0) {
-        printf("²»ÊÇ·µ»Ø°ü\n");
+        printf("ä¸æ˜¯è¿”å›åŒ…\n");
         return -1;
     }
 
-    // ÌáÈ¡²ÎÊı2
+    // æå–å‚æ•°2
     *param2_len = response_len - sizeof(ProtocolPacket);
     if (*param2_len > 0) {
         *param2 = (char*)zmalloc(*param2_len + 1);
         memcpy(*param2, response + sizeof(ProtocolPacket), *param2_len);
-        (*param2)[*param2_len] = '\0'; // È·±£×Ö·û´®½áÊø
+        (*param2)[*param2_len] = '\0'; // ç¡®ä¿å­—ç¬¦ä¸²ç»“æŸ
     }
     else {
         *param2 = NULL;
@@ -97,7 +99,7 @@ int parse_response_packet(const char* response, int response_len,
 }
 
 int send_msg(aeChannel* self, uint16_t protocol, bool is_rpc, const char* data, int len) {
-    // ×¼±¸·¢ËÍµÄÊı¾İ
+    // å‡†å¤‡å‘é€çš„æ•°æ®
     uint8_t need_return = is_rpc ? 1 : 0;
     static uint32_t pkg_id = 111;
     int param1 = 100;
@@ -108,101 +110,104 @@ int send_msg(aeChannel* self, uint16_t protocol, bool is_rpc, const char* data, 
     vdata.push_back('b');
     vdata.push_back('d');
 
-    // ¹¹½¨ÇëÇó°ü
+    // æ„å»ºè¯·æ±‚åŒ…
     int packet_len;
     char* request_packet = build_request_packet(protocol, need_return,
         pkg_id, param1, vdata.data(), vdata.size(), &packet_len);
 
     if (!request_packet) {
-        printf("¹¹½¨ÇëÇó°üÊ§°Ü\n");
+        printf("æ„å»ºè¯·æ±‚åŒ…å¤±è´¥\n");
         return -1;
     }
 
-    // ·¢ËÍÇëÇó°ü
-    printf("·¢ËÍÇëÇó°ü - ³¤¶È: %d, Ğ­Òé: %d, °üID: %d\n", packet_len, protocol, pkg_id);
+    // å‘é€è¯·æ±‚åŒ…
+    printf("å‘é€è¯·æ±‚åŒ… - é•¿åº¦: %d, åè®®: %d, åŒ…ID: %d\n", packet_len, protocol, pkg_id);
     pkg_id++;
     int send_len = ae_channel_send(self, request_packet, packet_len);
     if (send_len != packet_len) {
-        printf("·¢ËÍÊı¾İÊ§°Ü£¬·¢ËÍÁË %d/%d ×Ö½Ú\n", send_len, packet_len);
+        printf("å‘é€æ•°æ®å¤±è´¥ï¼Œå‘é€äº† %d/%d å­—èŠ‚\n", send_len, packet_len);
+        zfree(request_packet);
         return -1;
     }
+    zfree(request_packet);
     return need_return;
 }
 
-// Ğ­³Ì»¯µÄ¿Í»§¶ËÂß¼­
+// åç¨‹åŒ–çš„å®¢æˆ·ç«¯é€»è¾‘
 void client_coroutine(int fd) {
-    // Ê¹ÓÃĞ­³Ì·½Ê½½ÓÊÕÏìÓ¦
+    // ä½¿ç”¨åç¨‹æ–¹å¼æ¥æ”¶å“åº”
     char response[4096];
     int recv_len = 0;
     bool packet_complete = false;
     long long start_time = coroutine_current_time();
 
     while (!packet_complete) {
-        // ¼ì²é³¬Ê±
+        // æ£€æŸ¥è¶…æ—¶
         if (coroutine_current_time() - start_time > 5000) {
-            printf("½ÓÊÕÏìÓ¦³¬Ê±\n");
+            printf("æ¥æ”¶å“åº”è¶…æ—¶\n");
             return;
         }
 
-        // ³¢ÊÔ¶ÁÈ¡Êı¾İ
+        // å°è¯•è¯»å–æ•°æ®
         int n = anetReadWithTimeout(fd, response + recv_len, sizeof(response) - recv_len, 0);
         if (n > 0) {
             recv_len += n;
 
-            // ¼ì²éÊÇ·ñÊÕµ½ÍêÕû°üÍ·
+            // æ£€æŸ¥æ˜¯å¦æ”¶åˆ°å®Œæ•´åŒ…å¤´
             if (recv_len >= sizeof(ProtocolPacket)) {
                 ProtocolPacket* header = (ProtocolPacket*)response;
 
-                // ÑéÖ¤°ü³¤¶È
+                // éªŒè¯åŒ…é•¿åº¦
                 if (header->pkg_len > sizeof(response)) {
-                    printf("°ü³¤¶È³¬³ö»º³åÇø´óĞ¡\n");
+                    printf("åŒ…é•¿åº¦è¶…å‡ºç¼“å†²åŒºå¤§å°\n");
                     return;
                 }
 
-                // ¼ì²éÊÇ·ñÊÕµ½ÍêÕû°ü
+                // æ£€æŸ¥æ˜¯å¦æ”¶åˆ°å®Œæ•´åŒ…
                 if (recv_len >= header->pkg_len) {
                     packet_complete = true;
                 }
             }
         }
         else if (n == 0) {
-            printf("Á¬½Ó±»·şÎñÆ÷¹Ø±Õ\n");
+            printf("è¿æ¥è¢«æœåŠ¡å™¨å…³é—­\n");
             return;
         }
         else {
-            // Ã»ÓĞÊı¾İ¿É¶Á£¬¹ÒÆğĞ­³ÌµÈ´ıÊı¾İ
-            return coroutine_wait_read(fd, 5000 - (coroutine_current_time() - start_time));
+            // æ²¡æœ‰æ•°æ®å¯è¯»ï¼ŒæŒ‚èµ·åç¨‹ç­‰å¾…æ•°æ®
+            coroutine_wait_read(fd, 5000 - (coroutine_current_time() - start_time));
+            return;
         }
     }
 
-    // ´¦ÀíÍêÕûÏìÓ¦°ü
+    // å¤„ç†å®Œæ•´å“åº”åŒ…
     ProtocolPacket resp_pkg;
     char* resp_param2;
     int resp_param2_len;
 
     if (parse_response_packet(response, recv_len, &resp_pkg, &resp_param2, &resp_param2_len) == 0) {
-        printf("ÊÕµ½ÏìÓ¦ - Ğ­Òé: %d, °üID: %d, ²ÎÊı1: %d\n",
+        printf("æ”¶åˆ°å“åº” - åè®®: %d, åŒ…ID: %d, å‚æ•°1: %d\n",
             resp_pkg.protocol, resp_pkg.pkg_id, resp_pkg.param1);
         if (resp_param2 && resp_param2_len > 0) {
-            printf("ÏìÓ¦Êı¾İ: %.*s\n", resp_param2_len, resp_param2);
+            printf("å“åº”æ•°æ®: %.*s\n", resp_param2_len, resp_param2);
             zfree(resp_param2);
         }
     }
     else {
-        printf("½âÎöÏìÓ¦°üÊ§°Ü\n");
+        printf("è§£æå“åº”åŒ…å¤±è´¥\n");
     }
 
-    printf("¿Í»§¶ËĞ­³ÌÈÎÎñÍê³É\n");
+    printf("å®¢æˆ·ç«¯åç¨‹ä»»åŠ¡å®Œæˆ\n");
 }
 
 int on_packet(struct aeChannel* s, char* buf, int len) {
-    // ¼ì²éÊÇ·ñÓĞÍêÕûµÄ°üÍ·
-    if (len < 4) return 0;  // »¹²»¹»°üÍ·³¤¶È
+    // æ£€æŸ¥æ˜¯å¦æœ‰å®Œæ•´çš„åŒ…å¤´
+    if (len < 4) return 0;  // è¿˜ä¸å¤ŸåŒ…å¤´é•¿åº¦
 
     uint32_t pkg_len = *(uint32_t*)buf;
-    // ¼ì²éÊÇ·ñÊÕµ½ÍêÕû°ü
+    // æ£€æŸ¥æ˜¯å¦æ”¶åˆ°å®Œæ•´åŒ…
     if (len < pkg_len) {
-        return 0;  // °ü²»ÍêÕû£¬µÈ´ı¸ü¶àÊı¾İ
+        return 0;  // åŒ…ä¸å®Œæ•´ï¼Œç­‰å¾…æ›´å¤šæ•°æ®
     }
 
     ProtocolPacket resp_pkg;
@@ -210,23 +215,23 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
     int resp_param2_len;
     // (char*)((uint32_t*)buf + 1)
     if (parse_response_packet(buf, pkg_len, &resp_pkg, &resp_param2, &resp_param2_len) == 0) {
-        printf("ÊÕµ½ÏìÓ¦ - Ğ­Òé: %d, °üID: %d, ²ÎÊı1: %d\n",
+        printf("æ”¶åˆ°å“åº” - åè®®: %d, åŒ…ID: %d, å‚æ•°1: %d\n",
             resp_pkg.protocol, resp_pkg.pkg_id, resp_pkg.param1);
         if (resp_param2 && resp_param2_len > 0) {
-            printf("ÏìÓ¦Êı¾İ: %.*s\n", resp_param2_len, resp_param2);
+            printf("å“åº”æ•°æ®: %.*s\n", resp_param2_len, resp_param2);
             zfree(resp_param2);
         }
     } else {
-        printf("½âÎöÏìÓ¦°üÊ§°Ü\n");
+        printf("è§£æå“åº”åŒ…å¤±è´¥\n");
     }
 
-    printf("¿Í»§¶ËĞ­³ÌÈÎÎñÍê³É\n");
+    printf("å®¢æˆ·ç«¯åç¨‹ä»»åŠ¡å®Œæˆ\n");
     return pkg_len;
 }
 
 int running = 1;
 int on_close(struct aeChannel* s, char* buf, int len) {
-    printf("Á¬½Ó¹Ø±Õ\n");
+    printf("è¿æ¥å…³é—­\n");
     running = 0;
     return 0;
 }
@@ -236,36 +241,37 @@ int main(int argc, char* argv[]) {
     int port = 6379;
     char err[ANET_ERR_LEN];
 
-    // ´´½¨TCPÁ¬½Ó
+    // åˆ›å»ºTCPè¿æ¥
     aeChannel* net_client = ae_channel_conn((char*)ip, port, on_packet, on_close, NULL);
     if (!net_client) {
-        printf("Á¬½Ó·şÎñÆ÷Ê§°Ü: %s\n", err);
+        printf("è¿æ¥æœåŠ¡å™¨å¤±è´¥: %s\n", err);
         return 1;
     }
 
-    // ´´½¨ÊÂ¼şÑ­»·
+    // åˆ›å»ºäº‹ä»¶å¾ªç¯
     aeEventLoop* el = aeCreateEventLoop();
     if (!el) {
-        printf("´´½¨ÊÂ¼şÑ­»·Ê§°Ü\n");
+        printf("åˆ›å»ºäº‹ä»¶å¾ªç¯å¤±è´¥\n");
         return 1;
     }
 
     // using coroutine to handle client logic
-    printf("Á¬½Ó·şÎñÆ÷³É¹¦£¬¿ªÊ¼Ğ­³Ì¿Í»§¶Ë...\n");
-    const char* st = "ÕâÊÇ²âÊÔÊı¾İ";
+    printf("è¿æ¥æœåŠ¡å™¨æˆåŠŸï¼Œå¼€å§‹åç¨‹å®¢æˆ·ç«¯...\n");
+    const char* st = "è¿™æ˜¯æµ‹è¯•æ•°æ®";
 
-    // ÔËĞĞµ÷¶ÈÆ÷
+    // è¿è¡Œè°ƒåº¦å™¨
     while (running) {
         aeFramePoll(el);
         coroutine_update();
-        sleep(500);
+        xnet_sleep(500);  // ä½¿ç”¨é‡å‘½ååçš„å‡½æ•°
         if (send_msg(net_client, 1, true, st, strlen(st)) > 0) {
         }
     }
     // using a coroutine to handle client logic finish
 
     aeDeleteEventLoop(el);
-    printf("¿Í»§¶ËÒÑ¹Ø±Õ\n");
+    printf("å®¢æˆ·ç«¯å·²å…³é—­\n");
 
     return 0;
 }
+

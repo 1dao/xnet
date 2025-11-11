@@ -2,14 +2,12 @@
 #ifndef COROUTINE_H
 #define COROUTINE_H
 
+#ifdef __str
+#undef __str
+#endif
 #include <vector>
 #include <functional>
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <sys/select.h>
-#include <unistd.h>
-#endif
+
 
 // ½Ó¿Úº¯Êý
 void		   coroutine_init();
