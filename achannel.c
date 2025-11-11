@@ -1,4 +1,4 @@
-// ae_channel.c
+ï»¿// ae_channel.c
 #include "ae.h"
 #include "anet.h"
 #include "zmalloc.h"
@@ -32,14 +32,14 @@ typedef struct {
     int wmask;
 #endif
     aeChannel*      channel;
-    achannel_proc*  fpack;          // Ğ­Òé´¦ÀíÆ÷
-    achannel_proc*  fclose;          // Ğ­Òé´¦ÀíÆ÷
+    achannel_proc*  fpack;          // åè®®å¤„ç†å™¨
+    achannel_proc*  fclose;          // åè®®å¤„ç†å™¨
     void*           userdata;
 
 #ifdef AE_USING_IOCP
-    SOCKET new_fd;         // ÓÃÓÚaccept²Ù×÷
-    WSABUF wsrbuf;         // ÓÃÓÚWSARecv
-    WSABUF wswbuf;         // ÓÃÓÚWSASend
+    SOCKET new_fd;         // ç”¨äºacceptæ“ä½œ
+    WSABUF wsrbuf;         // ç”¨äºWSARecv
+    WSABUF wswbuf;         // ç”¨äºWSASend
 #endif
 } channel_context_t;
 
@@ -352,8 +352,8 @@ int aeProcAccept(struct aeEventLoop* eventLoop, int fd, void* client_data, int m
 #ifdef AE_USING_IOCP
     if (cur->new_fd != INVALID_SOCKET) {
         SOCKET new_fd = cur->new_fd;
-        anetNonBlock(NULL, new_fd);     // ÉèÖÃ·Ç×èÈû
-        anetTcpNoDelay(NULL, new_fd);   // ½ûÓÃNagleËã·¨
+        anetNonBlock(NULL, new_fd);     // è®¾ç½®éé˜»å¡
+        anetTcpNoDelay(NULL, new_fd);   // ç¦ç”¨Nagleç®—æ³•
 
         channel_context_t* client_ctx = create_context(
             (int)new_fd, cur->fpack, cur->fclose, cur->userdata);

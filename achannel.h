@@ -1,4 +1,4 @@
-// ae_channel.h
+ï»¿// ae_channel.h
 #ifndef _AE_CHANNEL_H
 #define _AE_CHANNEL_H
 #include "ae.h"
@@ -20,13 +20,13 @@ typedef struct aeChannel {
     char* rbuf;
     char* rpos;
 
-    void*   userdata;  // ÓÃ»§Êı¾İÖ¸Õë
+    void*   userdata;  // ç”¨æˆ·æ•°æ®æŒ‡é’ˆ
     aeFileEvent* ev;
 } aeChannel;
 
 typedef int achannel_proc(struct aeChannel* s, char* buf, int len);
 
-// º¯ÊıÉùÃ÷
+// å‡½æ•°å£°æ˜
 aeChannel*  ae_channel_conn(char* addr, int port, achannel_proc* on_pack, achannel_proc* on_close, void* userdata);
 int         ae_channel_listen(int port, char* bindaddr, achannel_proc* proc, achannel_proc* on_close, void* userdata);
 int         ae_channel_send(struct aeChannel* s, char* buf, int len);

@@ -1,4 +1,4 @@
-/* anet.c -- Basic TCP socket stuff made a bit less boring
+﻿/* anet.c -- Basic TCP socket stuff made a bit less boring
  *
  * Copyright (c) 2006-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -511,7 +511,7 @@ int anetWrite(int fd, char *buf, int count) {
 #ifdef _WIN32
             int err_code = WSAGetLastError();
             if (err_code == WSAEWOULDBLOCK || err_code == WSAEINTR) {
-                continue;  // ·Ç×èÈûÄ£Ê½ÏÂÖØÊÔ
+                continue; 
             }
 #endif
             return -1;
@@ -531,7 +531,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len)
         closesocket(s);
         return ANET_ERR;
     }
-    if (listen(s, 511) == SOCKET_ERROR) {  // 511 Îª×î´ó¼àÌý¶ÓÁÐ³¤¶È
+    if (listen(s, 511) == SOCKET_ERROR) {  // 511 
         char errbuf[ANET_ERR_LEN];
         anetSetError(err, "listen: %s", anetStrError(WSAGetLastError(), errbuf, sizeof(errbuf)));
         closesocket(s);
@@ -562,7 +562,7 @@ int anetTcpServer(char *err, int port, char *bindaddr) {
     memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
-    sa.sin_addr.s_addr = htonl(INADDR_ANY);  // °ó¶¨ËùÓÐÍø¿¨
+    sa.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bindaddr) {
 #ifdef _WIN32

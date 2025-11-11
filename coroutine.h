@@ -1,4 +1,4 @@
-// coroutine.h
+ï»¿// coroutine.h
 #ifndef COROUTINE_H
 #define COROUTINE_H
 
@@ -9,7 +9,7 @@
 #include <functional>
 
 
-// ½Ó¿Úº¯Êı
+// æ¥å£å‡½æ•°
 void		   coroutine_init();
 void           coroutine_update();
 void           coroutine_finish();

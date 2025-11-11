@@ -1,10 +1,7 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#ifdef __linux__
-#include <unistd.h>  
-#endif
 #include <vector>
 
 #include "ae.h"

@@ -1,4 +1,4 @@
-/* zmalloc - total amount of allocated memory aware version of malloc()
+﻿/* zmalloc - total amount of allocated memory aware version of malloc()
  *
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -286,7 +286,7 @@ size_t zmalloc_get_rss(void) {
     return t_info.resident_size;
 }
 #elif defined(_WIN32)
- // Windowsƽ̨�µ�RSS��ȡʵ��
+ // Windows平台下的RSS获取实现
 #include <windows.h>
 #include <psapi.h>
 

@@ -1,4 +1,4 @@
-#include <stdio.h>
+ï»¿#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -36,27 +36,27 @@ ProtocolHandler find_protocol_handler(uint16_t protocol) {
 }
 
 int handle_protocol_1(int param1, const char* param2, int param2_len, char* response, int* response_len) {
-    printf("´¦ÀíĞ­Òé1: param1=%d, param2=%.*s\n", param1, param2_len, param2);
-    *response_len = sprintf(response, "Ğ­Òé1´¦Àí½á¹û: %d", param1 * 2);
-    return 0; // ³É¹¦
+    printf("å¤„ç†åè®®1: param1=%d, param2=%.*s\n", param1, param2_len, param2);
+    *response_len = sprintf(response, "åè®®1å¤„ç†ç»“æœ: %d", param1 * 2);
+    return 0; // æˆåŠŸ
 }
 
 int handle_protocol_2(int param1, const char* param2, int param2_len, char* response, int* response_len) {
-    printf("´¦ÀíĞ­Òé2: param1=%d, param2³¤¶È=%d\n", param1, param2_len);
-    *response_len = sprintf(response, "Ğ­Òé2´¦Àí½á¹û: %d×Ö½ÚÊı¾İ", param2_len);
-    return 0; // ³É¹¦
+    printf("å¤„ç†åè®®2: param1=%d, param2é•¿åº¦=%d\n", param1, param2_len);
+    *response_len = sprintf(response, "åè®®2å¤„ç†ç»“æœ: %då­—èŠ‚æ•°æ®", param2_len);
+    return 0; // æˆåŠŸ
 }
 
 void sleep(unsigned int milliseconds) {
 #ifdef _WIN32
     Sleep(milliseconds);
 #elif __linux__
-    usleep(milliseconds * 1000);  // usleep Ê¹ÓÃÎ¢Ãë
+    usleep(milliseconds * 1000);  // usleep ä½¿ç”¨å¾®ç§’
 #endif
 }
 
 int on_packet(struct aeChannel* s, char* buf, int len) {
-    if (len < 12) { // ×îĞ¡ÇëÇó°ü³¤¶È£º4+2+1+1+4=12×Ö½Ú
+    if (len < 12) { // æœ€å°è¯·æ±‚åŒ…é•¿åº¦ï¼š4+2+1+1+4=12å­—èŠ‚
         return 0;
     }
 
@@ -67,16 +67,16 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
     uint32_t pkg_id = *(const uint32_t*)(buf + 8);
 
     if (pkg_len > len) {
-        printf("°ü²»È«µÈ´ı¼ÌĞø½ÓÊÜ: %d vs %d\n", pkg_len, len);
+        printf("åŒ…ä¸å…¨ç­‰å¾…ç»§ç»­æ¥å—: %d vs %d\n", pkg_len, len);
         return 0;
     }
 
     if (is_request != 1) {
-        printf("²»ÊÇÇëÇó°ü\n");
+        printf("ä¸æ˜¯è¯·æ±‚åŒ…\n");
         return pkg_len + sizeof(int);
     }
 
-    // ½âÎö²ÎÊı
+    // è§£æå‚æ•°
     int param1 = 0;
     const char* param2 = NULL;
     int param2_len = 0;
@@ -89,7 +89,7 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
         }
     }
 
-    // ²éÕÒ²¢µ÷ÓÃ¶ÔÓ¦µÄĞ­Òé´¦Àíº¯Êı
+    // æŸ¥æ‰¾å¹¶è°ƒç”¨å¯¹åº”çš„åè®®å¤„ç†å‡½æ•°
     ProtocolHandler handler = find_protocol_handler(protocol);
     char handler_response[1024] = { 0 };
     int handler_response_len = 0;
@@ -98,19 +98,19 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
     if (handler) {
         ret = handler(param1, param2, param2_len, handler_response, &handler_response_len);
     } else {
-        printf("Î´ÕÒµ½Ğ­Òé%dµÄ´¦Àíº¯Êı\n", protocol);
+        printf("æœªæ‰¾åˆ°åè®®%dçš„å¤„ç†å‡½æ•°\n", protocol);
         return pkg_len +sizeof(int);
     }
 
-    // ¹¹½¨ÏìÓ¦°ü
+    // æ„å»ºå“åº”åŒ…
     if (need_return) {
-        printf("´¦ÀíÍê³É£¬³¤¶È:% d, Ğ­Òé : % d, °üID : % d\n", pkg_len, protocol, pkg_id);
+        printf("å¤„ç†å®Œæˆï¼Œé•¿åº¦:% d, åè®® : % d, åŒ…ID : % d\n", pkg_len, protocol, pkg_id);
     
-        // ÏìÓ¦°üÍ·²¿³¤¶È£º4+2+1+1+4=12×Ö½Ú
+        // å“åº”åŒ…å¤´éƒ¨é•¿åº¦ï¼š4+2+1+1+4=12å­—èŠ‚
         char response[1024];
         uint32_t resp_pkg_len = handler_response_len +12;
-        uint8_t return_flag = 0; // ²»·µ»Ø
-        uint8_t is_response = 0; // ·µ»Ø°ü
+        uint8_t return_flag = 0; // ä¸è¿”å›
+        uint8_t is_response = 0; // è¿”å›åŒ…
 
         memcpy(response, &resp_pkg_len, 4);
         memcpy(response + 4, &protocol, 2);
@@ -124,12 +124,12 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
 }
 
 int on_close(struct aeChannel* s, char* data, int len) {
-    printf("Á¬½Ó¹Ø±Õ\n");
+    printf("è¿æ¥å…³é—­\n");
     return 0;
 }
 
 int main(int argc, char* argv[]) {
-    int port = 6379; // Ä¬ÈÏ¶Ë¿Ú
+    int port = 6379; // é»˜è®¤ç«¯å£
     if (argc > 1) {
         port = atoi(argv[1]);
     }
@@ -138,17 +138,17 @@ int main(int argc, char* argv[]) {
 
     aeEventLoop* el = aeCreateEventLoop();
     if (!el) {
-        printf("´´½¨ÊÂ¼şÑ­»·Ê§°Ü\n");
+        printf("åˆ›å»ºäº‹ä»¶å¾ªç¯å¤±è´¥\n");
         return 1;
     }
 
     int server_fd = ae_channel_listen(port, NULL, on_packet, on_close, NULL);
     if (server_fd == ANET_ERR) {
-        printf("´´½¨·şÎñÆ÷Ê§°Ü: %d\n", server_fd);
+        printf("åˆ›å»ºæœåŠ¡å™¨å¤±è´¥: %d\n", server_fd);
         return 1;
     }
 
-    printf("·şÎñÆ÷Æô¶¯£¬¼àÌı¶Ë¿Ú %d\n", port);
+    printf("æœåŠ¡å™¨å¯åŠ¨ï¼Œç›‘å¬ç«¯å£ %d\n", port);
     aeMain(el);
     while (1) {
         aeFramePoll(el);

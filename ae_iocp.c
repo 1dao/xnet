@@ -1,4 +1,4 @@
-// ae_iocp.c 
+ï»¿// ae_iocp.c 
 
 #include <string.h>
 #include <winsock2.h>
@@ -9,8 +9,8 @@
 #include "zmalloc.h"
 
 typedef struct aeApiState {
-    HANDLE iocp;                    // IOCP¾ä±ú
-    int eventCount;                 // µ±Ç°ÊÂ¼þÊýÁ¿
+    HANDLE iocp;                    // IOCPå¥æŸ„
+    int eventCount;                 // å½“å‰äº‹ä»¶æ•°é‡
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop* eventLoop) {
@@ -68,7 +68,7 @@ static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
     ULONG_PTR completionKey = 0;
     LPOVERLAPPED overlapped = NULL;
 
-    // »ñÈ¡Íê³É×´Ì¬
+    // èŽ·å–å®ŒæˆçŠ¶æ€
     BOOL result = GetQueuedCompletionStatus(
         state->iocp,
         &bytesTransferred,
@@ -98,7 +98,7 @@ static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
             eventLoop->fired[numevents].fd = -1;
             eventLoop->fired[numevents].mask = mask;
             eventLoop->fired[numevents].fe = (aeFileEvent*)completionKey;
-            eventLoop->fired[numevents].trans = 0; // ´«ÊäÊ§°Ü
+            eventLoop->fired[numevents].trans = 0; // ä¼ è¾“å¤±è´¥
             numevents++;
         }
     }

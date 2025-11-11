@@ -1,4 +1,4 @@
-#ifndef _RESPONSE_H
+﻿#ifndef _RESPONSE_H
 #define _RESPONSE_H
 
 #ifdef __cplusplus

@@ -1,4 +1,4 @@
- /*Copyright (c) 2011, BohuTANG <overred.shuttler at gmail dot com>
+﻿ /*Copyright (c) 2011, BohuTANG <overred.shuttler at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without

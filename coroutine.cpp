@@ -1,4 +1,4 @@
-// coroutine.cpp
+ï»¿// coroutine.cpp
 //
 #ifdef _WIN32
 #include <winsock2.h>
@@ -15,7 +15,7 @@
 class CoroutineTask;
 class CoroutineScheduler;
 
-// Ğ­³Ìµ÷¶ÈÆ÷
+// åç¨‹è°ƒåº¦å™¨
 class CoroutineScheduler {
 private:
     std::vector<CoroutineTask*> tasks;
@@ -35,7 +35,7 @@ private:
     void process_waiting_tasks();
 };
 
-// Ğ­³ÌÈÎÎñ
+// åç¨‹ä»»åŠ¡
 class CoroutineTask {
 public:
     enum State { READY, RUNNING, WAITING, FINISHED };
@@ -65,7 +65,7 @@ void CoroutineScheduler::add_task(CoroutineTask* task) {
 void CoroutineScheduler::co_wait_read(int fd, CoroutineTask* task, long long timeout_ms) {
     if (task) {
         task->wait_fd = fd;
-        task->wait_events = 1; // ¿É¶Á
+        task->wait_events = 1; // å¯è¯»
         task->resume_time = coroutine_current_time() + timeout_ms;
         task->state = CoroutineTask::WAITING;
         waiting_tasks.push_back(task);
@@ -74,7 +74,7 @@ void CoroutineScheduler::co_wait_read(int fd, CoroutineTask* task, long long tim
 
 void CoroutineScheduler::co_wait_write(int fd, CoroutineTask* task, long long timeout_ms) {
     task->wait_fd = fd;
-    task->wait_events = 2; // ¿ÉĞ´
+    task->wait_events = 2; // å¯å†™
     task->resume_time = coroutine_current_time() + timeout_ms;
     task->state = CoroutineTask::WAITING;
     waiting_tasks.push_back(task);
@@ -82,12 +82,12 @@ void CoroutineScheduler::co_wait_write(int fd, CoroutineTask* task, long long ti
 
 void CoroutineScheduler::update() {
     while (!stopped && (!tasks.empty() || !waiting_tasks.empty())) {
-        // ´¦ÀíµÈ´ıIOµÄÈÎÎñ
+        // å¤„ç†ç­‰å¾…IOçš„ä»»åŠ¡
         if (!waiting_tasks.empty()) {
             process_waiting_tasks();
         }
 
-        // Ö´ĞĞ¾ÍĞ÷ÈÎÎñ
+        // æ‰§è¡Œå°±ç»ªä»»åŠ¡
         std::vector<CoroutineTask*> ready_tasks;
         for (auto task : tasks) {
             if (task->state == CoroutineTask::READY) {
@@ -100,12 +100,12 @@ void CoroutineScheduler::update() {
             task->execute(*this);
             cur = nullptr;
 
-            // Èç¹ûÈÎÎñÍê³É£¬ÒÆ³ıËü
+            // å¦‚æœä»»åŠ¡å®Œæˆï¼Œç§»é™¤å®ƒ
             if (task->state == CoroutineTask::FINISHED) {
                 auto it = std::find(tasks.begin(), tasks.end(), task);
                 if (it != tasks.end()) {
                     tasks.erase(it);
-                    delete task; // ÇåÀíÈÎÎñÄÚ´æ
+                    delete task; // æ¸…ç†ä»»åŠ¡å†…å­˜
                 }
             }
         }
@@ -120,22 +120,22 @@ void CoroutineScheduler::process_waiting_tasks() {
     int max_fd = 0;
     long long now = coroutine_current_time();
 
-    // ÉèÖÃselectµÄÎÄ¼şÃèÊö·û
+    // è®¾ç½®selectçš„æ–‡ä»¶æè¿°ç¬¦
     for (auto it = waiting_tasks.begin(); it != waiting_tasks.end();) {
         CoroutineTask* task = *it;
 
-        // ¼ì²é³¬Ê±
+        // æ£€æŸ¥è¶…æ—¶
         if (now > task->resume_time) {
             task->state = CoroutineTask::READY;
             it = waiting_tasks.erase(it);
             continue;
         }
 
-        if (task->wait_events & 1) { // ¿É¶Á
+        if (task->wait_events & 1) { // å¯è¯»
             FD_SET(task->wait_fd, &read_fds);
             if (task->wait_fd > max_fd) max_fd = task->wait_fd;
         }
-        if (task->wait_events & 2) { // ¿ÉĞ´
+        if (task->wait_events & 2) { // å¯å†™
             FD_SET(task->wait_fd, &write_fds);
             if (task->wait_fd > max_fd) max_fd = task->wait_fd;
         }
@@ -145,14 +145,14 @@ void CoroutineScheduler::process_waiting_tasks() {
 
     if (max_fd == 0) return;
 
-    // ÉèÖÃ³¬Ê±
+    // è®¾ç½®è¶…æ—¶
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 10000; // 10ms
 
     int result = select(max_fd + 1, &read_fds, &write_fds, NULL, &tv);
     if (result > 0) {
-        // »½ĞÑ¿É¶Á/Ğ´µÄÈÎÎñ
+        // å”¤é†’å¯è¯»/å†™çš„ä»»åŠ¡
         for (auto it = waiting_tasks.begin(); it != waiting_tasks.end();) {
             CoroutineTask* task = *it;
             bool ready = false;
