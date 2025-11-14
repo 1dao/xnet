@@ -17,7 +17,7 @@
 #include <netinet/in.h>
 #endif
 
-#include "achannel.h"
+#include "xchannel.h"
 #include "anet.h"
 
 #define CHANNEL_BUFF_MAX (2*1024*1024)

@@ -6,7 +6,7 @@
 
 #include "ae.h"
 #include "anet.h"
-#include "achannel.h"
+#include "xchannel.h"
 #include "zmalloc.h"
 
 #ifndef _WIN32

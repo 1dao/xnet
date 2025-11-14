@@ -15,7 +15,7 @@
     <ClCompile Include="zmalloc.c" />
     <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="ae_iocp.c" />
-    <ClCompile Include="achannel.c" />
+    <ClCompile Include="xchannel.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
@@ -25,7 +25,7 @@
     <ClInclude Include="response.h" />
     <ClInclude Include="zmalloc.h" />
     <ClInclude Include="xcoroutine.h" />
-    <ClInclude Include="achannel.h" />
+    <ClInclude Include="xchannel.h" />
     <ClInclude Include="xmutex.h" />
   </ItemGroup>
 </Project>

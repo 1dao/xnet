@@ -125,7 +125,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ae.c" />
-    <ClCompile Include="achannel.c" />
+    <ClCompile Include="xchannel.c" />
     <ClCompile Include="ae_iocp.c" />
     <ClCompile Include="ae_ws2.c" />
     <ClCompile Include="anet.c">
@@ -138,7 +138,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
-    <ClInclude Include="achannel.h" />
+    <ClInclude Include="xchannel.h" />
     <ClInclude Include="anet.h" />
     <ClInclude Include="xcoroutine.h" />
     <ClInclude Include="fmacros.h" />

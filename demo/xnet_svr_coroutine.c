@@ -6,7 +6,7 @@
 #include "zmalloc.h"
 #include "ae.h"
 #include "anet.h"
-#include "achannel.h"
+#include "xchannel.h"
 
 typedef int (*ProtocolHandler)(int param1, const char* param2, int param2_len, char* response, int* response_len);
 
