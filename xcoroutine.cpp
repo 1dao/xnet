@@ -95,7 +95,7 @@ private:
 
 // 协程管理器实现
 class CoroutineManagerImpl {
-private:
+public:
     std::unordered_map<int, std::shared_ptr<CoroutineBase>> coroutine_map_;
     mutable xMutex map_mutex_;
     std::atomic<int> next_coroutine_id_{ 0 };
@@ -169,89 +169,6 @@ public:
 
         // 注意：这里不调用 resume，因为 initial_suspend 返回 suspend_never
         // 协程会自动开始执行，直到遇到第一个挂起点
-
-        return coroutine_id;
-    }
-
-    // 启动协程并管理其生命周期，返回协程ID
-    int coroutine_run_normal(CoroutineFuncNormal func, int arg_count, ...) {
-        if (g_manager == nullptr) {
-            std::cerr << "Coroutine manager not initialized" << std::endl;
-            return -1;
-        }
-
-        if (!func) {
-            std::cerr << "Invalid function pointer" << std::endl;
-            return -1;
-        }
-
-        // 收集变参
-        std::vector<void*> args;
-        va_list ap;
-        va_start(ap, arg_count);
-        for (int i = 0; i < arg_count; ++i) {
-            args.push_back(va_arg(ap, void*));
-        }
-        va_end(ap);
-
-        // 生成唯一ID
-        int coroutine_id = g_manager->generate_coroutine_id();
-        g_current_coroutine_id = coroutine_id;
-
-        // 调用用户函数获取协程任务
-        void* task_ptr = nullptr;
-
-        // 根据参数数量调用不同的函数
-        switch (arg_count) {
-        case 0:
-            task_ptr = func();
-            break;
-        case 1:
-            task_ptr = func(args[0]);
-            break;
-        case 2:
-            task_ptr = func(args[0], args[1]);
-            break;
-        case 3:
-            task_ptr = func(args[0], args[1], args[2]);
-            break;
-        case 4:
-            task_ptr = func(args[0], args[1], args[2], args[3]);
-            break;
-        case 5:
-            task_ptr = func(args[0], args[1], args[2], args[3], args[4]);
-            break;
-        default:
-            std::cerr << "Too many arguments (" << arg_count << "), maximum supported is 5" << std::endl;
-            return -1;
-        }
-
-        if (!task_ptr) {
-            std::cerr << "User function returned null task" << std::endl;
-            return -1;
-        }
-
-        // 将void*转换回SimpleTask*
-        SimpleTask* user_task = static_cast<SimpleTask*>(task_ptr);
-
-        // 创建包装器，移动用户任务的所有权
-        auto wrapper = std::make_shared<CoroutineWrapper>(
-            std::move(*user_task), coroutine_id,
-            reinterpret_cast<CoroutineFunc>(func),
-            new std::vector<void*>(std::move(args))); // 保存参数
-
-        // 释放用户返回的任务对象
-        delete user_task;
-
-        // 保存到map
-        {
-            XMutexGuard lock(&g_manager->map_mutex_);
-            g_manager->coroutine_map_[coroutine_id] = wrapper;
-        }
-
-        std::cout << "Coroutine started, ID: " << coroutine_id
-            << ", total: " << g_manager->coroutine_map_.size()
-            << ", args: " << arg_count << std::endl;
 
         return coroutine_id;
     }
@@ -397,6 +314,62 @@ int coroutine_run(void* (*func)(void*), void* arg) {
         return -1;
     }
     return g_manager->coroutine_run(func, arg);
+}
+
+int coroutine_run_variant(CoroutineFunc func, const VariantCoroutineArgs& args) {
+    if (g_manager == nullptr) {
+        std::cerr << "Coroutine manager not initialized" << std::endl;
+        return -1;
+    }
+
+    if (!func) {
+        std::cerr << "Invalid function pointer" << std::endl;
+        return -1;
+    }
+
+    // 生成唯一ID
+    int coroutine_id = g_manager->generate_coroutine_id();
+    g_current_coroutine_id = coroutine_id;
+
+    // 创建参数包装器（在堆上分配）
+    VariantCoroutineArgs* variant_args = new VariantCoroutineArgs(args);
+
+    // 调用用户函数，传递参数包装器
+    void* task_ptr = func(variant_args);
+    if (!task_ptr) {
+        std::cerr << "User function returned null task" << std::endl;
+        delete variant_args;
+        return -1;
+    }
+
+    // 将void*转换回SimpleTask*
+    SimpleTask* user_task = static_cast<SimpleTask*>(task_ptr);
+
+    // 创建包装器
+    auto wrapper = std::make_shared<CoroutineWrapper>(
+        std::move(*user_task), coroutine_id, func, variant_args);
+
+    // 释放用户返回的任务对象
+    delete user_task;
+
+    // 保存到map
+    {
+        XMutexGuard lock(&g_manager->map_mutex_);
+        g_manager->coroutine_map_[coroutine_id] = wrapper;
+    }
+
+    std::cout << "Coroutine started, ID: " << coroutine_id
+        << ", total: " << g_manager->coroutine_map_.size()
+        << ", args: " << args.size() << std::endl;
+
+    // 打印参数（调试用）
+    variant_args->print_args();
+
+    return coroutine_id;
+}
+
+int coroutine_run_variant(CoroutineFunc func, std::initializer_list<CoroutineArg> args) {
+    return coroutine_run_variant(func, VariantCoroutineArgs(args));
 }
 
 bool coroutine_resume(int coroutine_id, void* param) {

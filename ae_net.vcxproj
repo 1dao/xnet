@@ -102,6 +102,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINSOCK_DEPRECATED_NO_WARNINGS;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -130,7 +131,7 @@
     <ClCompile Include="anet.c">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Default</CompileAs>
     </ClCompile>
-    <ClCompile Include="coroutine.cpp" />
+    <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="request.c" />
     <ClCompile Include="response.c" />
     <ClCompile Include="zmalloc.c" />
@@ -139,10 +140,11 @@
     <ClInclude Include="ae.h" />
     <ClInclude Include="achannel.h" />
     <ClInclude Include="anet.h" />
-    <ClInclude Include="coroutine.h" />
+    <ClInclude Include="xcoroutine.h" />
     <ClInclude Include="fmacros.h" />
     <ClInclude Include="request.h" />
     <ClInclude Include="response.h" />
+    <ClInclude Include="xmutex.h" />
     <ClInclude Include="zmalloc.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

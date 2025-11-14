@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+#include <stdbool.h>
+
 typedef enum aeChannelProto {
     aeproto_blp = 0,
 } aeChannelProto;
