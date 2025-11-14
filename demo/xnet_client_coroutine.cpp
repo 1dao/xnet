@@ -8,7 +8,7 @@
 #include "anet.h"
 #include "achannel.h"
 #include "zmalloc.h"
-#include "coroutine.h"
+#include "xcoroutine.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -101,7 +101,7 @@ int parse_response_packet(const char* response, int response_len,
     return 0;
 }
 
-int send_msg(aeChannel* self, uint16_t protocol, bool is_rpc, const char* data, int len) {
+int send_msg(xChannel* self, uint16_t protocol, bool is_rpc, const char* data, int len) {
     // 准备发送的数据
     uint8_t need_return = is_rpc ? 1 : 0;
     static uint32_t pkg_id = 111;
@@ -126,7 +126,7 @@ int send_msg(aeChannel* self, uint16_t protocol, bool is_rpc, const char* data, 
     // 发送请求包
     printf("发送请求包 - 长度: %d, 协议: %d, 包ID: %d\n", packet_len, protocol, pkg_id);
     pkg_id++;
-    int send_len = ae_channel_send(self, request_packet, packet_len);
+    int send_len = xchannel_send(self, request_packet, packet_len);
     if (send_len != packet_len) {
         printf("发送数据失败，发送了 %d/%d 字节\n", send_len, packet_len);
         zfree(request_packet);
@@ -136,74 +136,7 @@ int send_msg(aeChannel* self, uint16_t protocol, bool is_rpc, const char* data, 
     return need_return;
 }
 
-// 协程化的客户端逻辑
-void client_coroutine(int fd) {
-    // 使用协程方式接收响应
-    char response[4096];
-    int recv_len = 0;
-    bool packet_complete = false;
-    long long start_time = coroutine_current_time();
-
-    while (!packet_complete) {
-        // 检查超时
-        if (coroutine_current_time() - start_time > 5000) {
-            printf("接收响应超时\n");
-            return;
-        }
-
-        // 尝试读取数据
-        int n = anetReadWithTimeout(fd, response + recv_len, sizeof(response) - recv_len, 0);
-        if (n > 0) {
-            recv_len += n;
-
-            // 检查是否收到完整包头
-            if (recv_len >= sizeof(ProtocolPacket)) {
-                ProtocolPacket* header = (ProtocolPacket*)response;
-
-                // 验证包长度
-                if (header->pkg_len > sizeof(response)) {
-                    printf("包长度超出缓冲区大小\n");
-                    return;
-                }
-
-                // 检查是否收到完整包
-                if (recv_len >= header->pkg_len) {
-                    packet_complete = true;
-                }
-            }
-        }
-        else if (n == 0) {
-            printf("连接被服务器关闭\n");
-            return;
-        }
-        else {
-            // 没有数据可读，挂起协程等待数据
-            coroutine_wait_read(fd, 5000 - (coroutine_current_time() - start_time));
-            return;
-        }
-    }
-
-    // 处理完整响应包
-    ProtocolPacket resp_pkg;
-    char* resp_param2;
-    int resp_param2_len;
-
-    if (parse_response_packet(response, recv_len, &resp_pkg, &resp_param2, &resp_param2_len) == 0) {
-        printf("收到响应 - 协议: %d, 包ID: %d, 参数1: %d\n",
-            resp_pkg.protocol, resp_pkg.pkg_id, resp_pkg.param1);
-        if (resp_param2 && resp_param2_len > 0) {
-            printf("响应数据: %.*s\n", resp_param2_len, resp_param2);
-            zfree(resp_param2);
-        }
-    }
-    else {
-        printf("解析响应包失败\n");
-    }
-
-    printf("客户端协程任务完成\n");
-}
-
-int on_packet(struct aeChannel* s, char* buf, int len) {
+int on_packet(struct xChannel* s, char* buf, int len) {
     // 检查是否有完整的包头
     if (len < 4) return 0;  // 还不够包头长度
 
@@ -233,7 +166,7 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
 }
 
 int running = 1;
-int on_close(struct aeChannel* s, char* buf, int len) {
+int on_close(struct xChannel* s, char* buf, int len) {
     printf("连接关闭\n");
     running = 0;
     return 0;
@@ -245,7 +178,7 @@ int main(int argc, char* argv[]) {
     char err[ANET_ERR_LEN];
 
     // 创建TCP连接
-    aeChannel* net_client = ae_channel_conn((char*)ip, port, on_packet, on_close, NULL);
+    xChannel* net_client = xchannel_conn((char*)ip, port, on_packet, on_close, NULL);
     if (!net_client) {
         printf("连接服务器失败: %s\n", err);
         return 1;
@@ -265,7 +198,6 @@ int main(int argc, char* argv[]) {
     // 运行调度器
     while (running) {
         aeFramePoll(el);
-        coroutine_update();
         xnet_sleep(500);  // 使用重命名后的函数
         if (send_msg(net_client, 1, true, st, strlen(st)) > 0) {
         }

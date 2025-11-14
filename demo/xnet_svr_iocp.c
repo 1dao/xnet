@@ -55,7 +55,7 @@ void sleep(unsigned int milliseconds) {
 #endif
 }
 
-int on_packet(struct aeChannel* s, char* buf, int len) {
+int on_packet(struct xChannel* s, char* buf, int len) {
     if (len < 12) { // 最小请求包长度：4+2+1+1+4=12字节
         return 0;
     }
@@ -118,12 +118,12 @@ int on_packet(struct aeChannel* s, char* buf, int len) {
         memcpy(response + 7, &is_response, 1);
         memcpy(response + 8, &pkg_id, 4);
         memcpy(response + 12, handler_response, handler_response_len);
-		ae_channel_send(s, response, resp_pkg_len);
+		xchannel_send(s, response, resp_pkg_len);
     }
     return pkg_len;
 }
 
-int on_close(struct aeChannel* s, char* data, int len) {
+int on_close(struct xChannel* s, char* data, int len) {
     printf("连接关闭\n");
     return 0;
 }
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int server_fd = ae_channel_listen(port, NULL, on_packet, on_close, NULL);
+    int server_fd = xchannel_listen(port, NULL, on_packet, on_close, NULL);
     if (server_fd == ANET_ERR) {
         printf("创建服务器失败: %d\n", server_fd);
         return 1;

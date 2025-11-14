@@ -31,9 +31,9 @@ typedef struct {
     OVERLAPPED wop;
     int wmask;
 #endif
-    aeChannel*      channel;
-    achannel_proc*  fpack;          // 协议处理器
-    achannel_proc*  fclose;          // 协议处理器
+    xChannel*      channel;
+    xchannel_proc*  fpack;          // 协议处理器
+    xchannel_proc*  fclose;          // 协议处理器
     void*           userdata;
 
 #ifdef AE_USING_IOCP
@@ -43,8 +43,8 @@ typedef struct {
 #endif
 } channel_context_t;
 
-static aeChannel* create_channel(int fd, void* userdata) {
-    aeChannel* channel = zmalloc(sizeof(aeChannel));
+static xChannel* create_channel(int fd, void* userdata) {
+    xChannel* channel = zmalloc(sizeof(xChannel));
     if (!channel) return NULL;
 
     channel->fd = fd;
@@ -59,7 +59,7 @@ static aeChannel* create_channel(int fd, void* userdata) {
     return channel;
 }
 
-static void free_channel(aeChannel* channel) {
+static void free_channel(xChannel* channel) {
     if (!channel) return;
 
     if (channel->fd != -1) {
@@ -80,7 +80,7 @@ static void free_channel(aeChannel* channel) {
     zfree(channel);
 }
 
-static channel_context_t* create_context(int fd, achannel_proc* fpack, achannel_proc* fclose, void* userdata) {
+static channel_context_t* create_context(int fd, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
     channel_context_t* ctx = zmalloc(sizeof(channel_context_t));
     if (!ctx) return NULL;
     ctx->channel = create_channel(fd, userdata);
@@ -94,7 +94,7 @@ static channel_context_t* create_context(int fd, achannel_proc* fpack, achannel_
     }
 
 #ifdef AE_USING_IOCP
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
     memset(&ctx->rop, 0, sizeof(OVERLAPPED));
     memset(&ctx->wop, 0, sizeof(OVERLAPPED));
     ctx->new_fd = INVALID_SOCKET;
@@ -129,12 +129,12 @@ static void free_channel_context(channel_context_t* ctx) {
 static int on_data(channel_context_t* ctx) {
     if (!ctx || !ctx->channel) return AE_ERR;
 
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
     for (int i = 0; i < 10; i++) {
         if (!ctx->fpack) {
             if (s->rpos > s->rbuf) {
                 int len = s->rpos - s->rbuf;
-                ae_channel_send(s, s->rbuf, len);
+                xchannel_send(s, s->rbuf, len);
                 s->rpos = s->rbuf;
             }
             break;
@@ -189,7 +189,7 @@ inline static int aePostIocpAccept(int socket, OVERLAPPED* overlapped) {
     initializeAcceptEx(socket);
 
     DWORD bytesReceived = 0;
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
     if (lpAcceptEx(socket, acceptSocket, s->rbuf, 0,
         sizeof(struct sockaddr_in) + 16,
         sizeof(struct sockaddr_in) + 16,
@@ -207,7 +207,7 @@ inline static int aePostIocpAccept(int socket, OVERLAPPED* overlapped) {
 
 inline static int aePostIocpRead(int socket, OVERLAPPED* overlapped) {
     channel_context_t* ctx = container_of(overlapped, channel_context_t, rop);
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
 
     DWORD bytesReceived = 0;
     DWORD flags = 0;
@@ -227,7 +227,7 @@ inline static int aePostIocpWrite(int socket, OVERLAPPED* overlapped) {
     channel_context_t* ctx = container_of(overlapped, channel_context_t, wop);
     DWORD bytesSent = 0;
     DWORD dwFlags = 0;
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
     ctx->wswbuf.buf = s->wbuf;
     ctx->wswbuf.len = (ULONG)(s->wpos - s->wbuf);
 
@@ -251,12 +251,12 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
     channel_context_t* ctx = (channel_context_t*)client_data;
     if (!ctx || !ctx->channel) return AE_ERR;
 
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
     int fd = s->fd;
 #ifndef AE_USING_IOCP
     int available = s->rlen - (s->rpos - s->rbuf);
     if (available <= 0) {
-        ae_channel_close(s);
+        xchannel_close(s);
         return AE_ERR;
     }
 
@@ -268,7 +268,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
         else {
             printf("Read error on fd: %d\n", fd);
         }
-        ae_channel_close(s);
+        xchannel_close(s);
         return AE_ERR;
     }
     s->rpos += trans;
@@ -277,7 +277,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
         s->rpos += trans;
 #endif
     if (on_data(ctx) == AE_ERR || trans==0) {
-        ae_channel_close(s);
+        xchannel_close(s);
         return AE_ERR;
     }
 #ifdef AE_USING_IOCP
@@ -290,7 +290,7 @@ int aeProcWrite(struct aeEventLoop* eventLoop, int fd, void* client_data, int ma
     channel_context_t* ctx = (channel_context_t*)client_data;
     if (!ctx || !ctx->channel) return AE_ERR;
 
-    aeChannel* s = ctx->channel;
+    xChannel* s = ctx->channel;
     fd = s->fd;
     int slen = s->wpos - s->wbuf;
     if (slen <= 0) {
@@ -305,7 +305,7 @@ int aeProcWrite(struct aeEventLoop* eventLoop, int fd, void* client_data, int ma
         } else {
             printf("Write error on fd: %d\n", fd);
         }
-        ae_channel_close(s);
+        xchannel_close(s);
         return AE_ERR;
     }
 
@@ -324,7 +324,7 @@ int aeProcWrite(struct aeEventLoop* eventLoop, int fd, void* client_data, int ma
     }
     if (s->wpos != s->wbuf) {
         if (aePostIocpWrite(fd, &ctx->wop) == AE_ERR) {
-            ae_channel_close(s);
+            xchannel_close(s);
             return AE_ERR;
         }
     } else {
@@ -414,7 +414,7 @@ int aeProcAccept(struct aeEventLoop* eventLoop, int fd, void* client_data, int m
     return AE_OK;
 }
 
-int ae_channel_listen(int port, char* bindaddr, achannel_proc* fpack, achannel_proc* fclose, void* userdata) {
+int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
     aeEventLoop* el = aeGetCurEventLoop();
     if (!el) {
         printf("No event loop available\n");
@@ -458,7 +458,7 @@ int ae_channel_listen(int port, char* bindaddr, achannel_proc* fpack, achannel_p
     return AE_OK;
 }
 
-aeChannel* ae_channel_conn(char* addr, int port, achannel_proc* fpack, achannel_proc* fclose, void* userdata) {
+xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
     aeEventLoop* el = aeGetCurEventLoop();
     if (!el) {
         printf("No event loop available\n");
@@ -511,7 +511,7 @@ aeChannel* ae_channel_conn(char* addr, int port, achannel_proc* fpack, achannel_
     return client_ctx->channel;
 }
 
-int ae_channel_send(aeChannel* s, char* buf, int len) {
+int xchannel_send(xChannel* s, char* buf, int len) {
     if (!s || !s->wbuf) return 0;
 
     int remain = s->wlen - (s->wpos - s->wbuf);
@@ -535,7 +535,7 @@ int ae_channel_send(aeChannel* s, char* buf, int len) {
         } else {
             printf("Write error on fd: %d\n", s->fd);
         }
-        ae_channel_close(s);
+        xchannel_close(s);
         return AE_ERR;
     }
 
@@ -557,7 +557,7 @@ int ae_channel_send(aeChannel* s, char* buf, int len) {
     if (el && (s->wpos > s->wbuf) && (!(ev->mask & AE_WRITABLE))) {
         ev->mask |= AE_WRITABLE;
         if (aePostIocpWrite(s->fd, &ctx->wop) == AE_ERR) {
-            ae_channel_close(s);
+            xchannel_close(s);
             return AE_ERR;
         }
     }
@@ -565,11 +565,11 @@ int ae_channel_send(aeChannel* s, char* buf, int len) {
     return len;
 }
 
-int ae_channel_xrpc(struct aeChannel* s, char* buf, int len) {
-    return ae_channel_send(s, buf, len);
+int xchannel_rpc(struct xChannel* s, char* buf, int len) {
+    return xchannel_send(s, buf, len);
 }
 
-int ae_channel_close(struct aeChannel* s) {
+int xchannel_close(struct xChannel* s) {
     if (!s) return AE_ERR;
     printf("Closing channel, fd: %d\n", s->fd);
 

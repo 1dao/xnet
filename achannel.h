@@ -9,11 +9,11 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-typedef enum aeChannelProto {
+typedef enum xChannelProto {
     aeproto_blp = 0,
-} aeChannelProto;
+} xChannelProto;
 
-typedef struct aeChannel {
+typedef struct xChannel {
     int   fd;
     int   wlen;
     char* wbuf;
@@ -25,16 +25,16 @@ typedef struct aeChannel {
 
     void*   userdata;  // 用户数据指针
     aeFileEvent* ev;
-} aeChannel;
+} xChannel;
 
-typedef int achannel_proc(struct aeChannel* s, char* buf, int len);
+typedef int xchannel_proc(struct xChannel* s, char* buf, int len);
 
 // 函数声明
-aeChannel*  ae_channel_conn(char* addr, int port, achannel_proc* on_pack, achannel_proc* on_close, void* userdata);
-int         ae_channel_listen(int port, char* bindaddr, achannel_proc* proc, achannel_proc* on_close, void* userdata);
-int         ae_channel_send(struct aeChannel* s, char* buf, int len);
-int         ae_channel_xrpc(struct aeChannel* s, char* buf, int len);
-int         ae_channel_close(struct aeChannel* s);
+xChannel*   xchannel_conn(char* addr, int port, xchannel_proc* on_pack, xchannel_proc* on_close, void* userdata);
+int         xchannel_listen(int port, char* bindaddr, xchannel_proc* proc, xchannel_proc* on_close, void* userdata);
+int         xchannel_send(struct xChannel* s, char* buf, int len);
+int         xchannel_rpc(struct xChannel* s, char* buf, int len);
+int         xchannel_close(struct xChannel* s);
 
 #ifdef __cplusplus
 }
