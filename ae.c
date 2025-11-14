@@ -116,7 +116,7 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
-int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
+int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     aeFileProc *proc, void *clientData, aeFileEvent** ev) {
     //if (fd >= AE_SETSIZE) return AE_ERR;
     if (eventLoop->efhead == -1) return AE_ERR;
@@ -136,7 +136,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     return AE_OK;
 }
 
-void aeDeleteFileEvent(aeEventLoop* eventLoop, int fd, aeFileEvent* fe, int mask) {
+void aeDeleteFileEvent(aeEventLoop* eventLoop, xSocket fd, aeFileEvent* fe, int mask) {
     if (fe->mask == AE_NONE) return;
 
     fe->mask = fe->mask & (~mask);
@@ -145,7 +145,7 @@ void aeDeleteFileEvent(aeEventLoop* eventLoop, int fd, aeFileEvent* fe, int mask
             /* Update the max fd */
             int j;
 
-            for (j = eventLoop->maxfd - 1; j >= 0; j--)
+            for (j = (int)eventLoop->maxfd - 1; j >= 0; j--)
                 if (eventLoop->events[j].mask != AE_NONE) break;
             eventLoop->maxfd = j;
         }
@@ -378,7 +378,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
         for (j = 0; j < numevents; j++) {
             aeFileEvent* fe = eventLoop->fired[j].fe;// &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
-            int fd = eventLoop->fired[j].fd;
+            xSocket fd = eventLoop->fired[j].fd;
             int trans = eventLoop->fired[j].trans;
             int rfired = 0;
 
@@ -405,7 +405,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
 
 /* Wait for millseconds until the given file descriptor becomes
  * writable/readable/exception */
-int aeWait(int fd, int mask, long long milliseconds) {
+int aeWait(xSocket fd, int mask, long long milliseconds) {
     struct timeval tv;
     fd_set rfds, wfds, efds;
     int retmask = 0, retval;
@@ -418,7 +418,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
 
     if (mask & AE_READABLE) FD_SET(fd,&rfds);
     if (mask & AE_WRITABLE) FD_SET(fd,&wfds);
-    if ((retval = select(fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
+    if ((retval = select((int)fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
         if (FD_ISSET(fd,&rfds)) retmask |= AE_READABLE;
         if (FD_ISSET(fd,&wfds)) retmask |= AE_WRITABLE;
         return retmask;

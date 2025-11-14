@@ -108,7 +108,7 @@ static int anetWSAInit(char *err)
     return ANET_OK;
 }
 
-int anetNonBlock(char *err, int fd)
+int anetNonBlock(char *err, xSocket fd)
 {
 #ifdef _WIN32
     u_long mode = 1;  // 1 ±íÊ¾·Ç×èÈû£¬0 ±íÊ¾×èÈû
@@ -132,7 +132,7 @@ int anetNonBlock(char *err, int fd)
     return ANET_OK;
 }
 
-int anetTcpNoDelay(char *err, int fd)
+int anetTcpNoDelay(char *err, xSocket fd)
 {
     int yes = 1;
 #ifdef _WIN32
@@ -151,7 +151,7 @@ int anetTcpNoDelay(char *err, int fd)
     return ANET_OK;
 }
 
-int anetSetSendBuffer(char *err, int fd, int buffsize)
+int anetSetSendBuffer(char *err, xSocket fd, int buffsize)
 {
 #ifdef _WIN32
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char*)&buffsize, sizeof(buffsize)) == SOCKET_ERROR) {
@@ -169,7 +169,7 @@ int anetSetSendBuffer(char *err, int fd, int buffsize)
     return ANET_OK;
 }
 
-int anetTcpKeepAlive(char *err, int fd)
+int anetTcpKeepAlive(char *err, xSocket fd)
 {
     int yes = 1;
 #ifdef _WIN32
@@ -218,7 +218,7 @@ int anetResolve(char *err, char *host, char *ipbuf)
     return ANET_OK;
 }
 
-static int anetCreateSocket(char *err, int domain) {
+static xSocket anetCreateSocket(char *err, int domain) {
     static int wsa_inited = 0;
     if (!wsa_inited) {
         if (anetWSAInit(err) != ANET_OK) {
@@ -227,7 +227,8 @@ static int anetCreateSocket(char *err, int domain) {
         wsa_inited = 1;
     }
 
-    int s, on = 1;
+    xSocket s;
+    int on = 1;
 #ifdef _WIN32
     s = (int)socket(domain, SOCK_STREAM, 0);
     if (s == INVALID_SOCKET) {
@@ -263,9 +264,9 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
-static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
+static xSocket anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 {
-    int s;
+    xSocket s;
     struct sockaddr_in sa;
 
     if ((s = anetCreateSocket(err, AF_INET)) == ANET_ERR)
@@ -327,17 +328,17 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
     return s;
 }
 
-int anetTcpConnect(char *err, char *addr, int port)
+xSocket anetTcpConnect(char *err, char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONE);
 }
 
-int anetTcpNonBlockConnect(char *err, char *addr, int port)
+xSocket anetTcpNonBlockConnect(char *err, char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK);
 }
 
-int anetUnixGenericConnect(char *err, char *path, int flags)
+xSocket anetUnixGenericConnect(char *err, char *path, int flags)
 {
 #ifndef _WIN32
     int s;
@@ -367,19 +368,19 @@ int anetUnixGenericConnect(char *err, char *path, int flags)
 #endif
 }
 
-int anetUnixConnect(char *err, char *path)
+xSocket anetUnixConnect(char *err, char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
 }
 
-int anetUnixNonBlockConnect(char *err, char *path)
+xSocket anetUnixNonBlockConnect(char *err, char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
 }
 
 /* Like read(2) but make sure 'count' is read before to return
  * (unless error or EOF condition is encountered) */
-int anetRead(int fd, char *buf, int count)
+int anetRead(xSocket fd, char *buf, int count)
 {
     int nread, totlen = 0;
     while (totlen != count) {
@@ -419,7 +420,7 @@ int anetRead(int fd, char *buf, int count)
     return totlen;
 }
 
-int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
+int anetReadWithTimeout(xSocket fd, char* buf, int count, long long timeout_ms) {
     fd_set rfds;
     struct timeval tv;
     int retval, nread = 0;
@@ -428,10 +429,10 @@ int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
         FD_ZERO(&rfds);
         FD_SET(fd, &rfds);
 
-        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_sec = (long)(timeout_ms / 1000);
         tv.tv_usec = (timeout_ms % 1000) * 1000;
 
-        retval = select(fd + 1, &rfds, NULL, NULL, &tv);
+        retval = select((int)fd + 1, &rfds, NULL, NULL, &tv);
 
         // 安全处理select返回值
         if (retval == -1) {
@@ -498,7 +499,7 @@ int anetReadWithTimeout(int fd, char* buf, int count, long long timeout_ms) {
 
 /* Like write(2) but make sure 'count' is read before to return
  * (unless error is encountered) */
-int anetWrite(int fd, char *buf, int count) {
+int anetWrite(xSocket fd, char *buf, int count) {
     int nwritten, totlen = 0;
     while (totlen != count) {
 #ifdef _WIN32
@@ -522,7 +523,7 @@ int anetWrite(int fd, char *buf, int count) {
     return totlen;
 }
 
-static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len)
+static int anetListen(char *err, xSocket s, struct sockaddr *sa, socklen_t len)
 {
 #ifdef _WIN32
     if (bind(s, sa, len) == SOCKET_ERROR) {
@@ -552,8 +553,8 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len)
     return ANET_OK;
 }
 
-int anetTcpServer(char *err, int port, char *bindaddr) {
-    int s;
+xSocket anetTcpServer(char *err, int port, char *bindaddr) {
+    xSocket s;
     struct sockaddr_in sa;
 
     if ((s = anetCreateSocket(err, AF_INET)) == ANET_ERR)
@@ -610,7 +611,7 @@ int anetUnixServer(char *err, char *path, mode_t perm)
     return s;
 }*/
 
-static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len)
+static int anetGenericAccept(char *err, xSocket s, struct sockaddr *sa, socklen_t *len)
 {
     int fd;
     while (1) {
@@ -638,9 +639,9 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 
-int anetTcpAccept(char *err, int s, char *ip, int *port)
+xSocket anetTcpAccept(char *err, xSocket s, char *ip, int *port)
 {
-    int fd;
+    xSocket fd;
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
     if ((fd = anetGenericAccept(err, s, (struct sockaddr*)&sa, &salen)) == ANET_ERR)
@@ -657,11 +658,11 @@ int anetTcpAccept(char *err, int s, char *ip, int *port)
     return fd;
 }
 
-int anetUnixAccept(char *err, int s) {
+xSocket anetUnixAccept(char *err, xSocket s) {
 #ifdef _WIN32
     return -1;
 #else
-    int fd;
+    xSocket fd;
     struct sockaddr_un sa;
     socklen_t salen = sizeof(sa);
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
@@ -670,7 +671,7 @@ int anetUnixAccept(char *err, int s) {
     return fd;
 #endif
 }
-int anetPeerToString(int fd, char *ip, int *port)
+int anetPeerToString(xSocket fd, char *ip, int *port)
 {
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
@@ -694,7 +695,7 @@ int anetPeerToString(int fd, char *ip, int *port)
     return 0;
 }
 
-int anetCloseSocket(int fd)
+int anetCloseSocket(xSocket fd)
 {
 #ifdef _WIN32
     return closesocket(fd);

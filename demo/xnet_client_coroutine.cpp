@@ -116,7 +116,7 @@ int send_msg(xChannel* self, uint16_t protocol, bool is_rpc, const char* data, i
     // 构建请求包
     int packet_len;
     char* request_packet = build_request_packet(protocol, need_return,
-        pkg_id, param1, vdata.data(), vdata.size(), &packet_len);
+        pkg_id, param1, vdata.data(), (int)vdata.size(), &packet_len);
 
     if (!request_packet) {
         printf("构建请求包失败\n");
@@ -142,7 +142,7 @@ int on_packet(struct xChannel* s, char* buf, int len) {
 
     uint32_t pkg_len = *(uint32_t*)buf;
     // 检查是否收到完整包
-    if (len < pkg_len) {
+    if (len < (int)pkg_len) {
         return 0;  // 包不完整，等待更多数据
     }
 
@@ -199,7 +199,7 @@ int main(int argc, char* argv[]) {
     while (running) {
         aeFramePoll(el);
         xnet_sleep(500);  // 使用重命名后的函数
-        if (send_msg(net_client, 1, true, st, strlen(st)) > 0) {
+        if (send_msg(net_client, 1, true, st, (int)strlen(st)) > 0) {
         }
     }
     // using a coroutine to handle client logic finish

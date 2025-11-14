@@ -14,14 +14,14 @@ typedef enum xChannelProto {
 } xChannelProto;
 
 typedef struct xChannel {
-    int   fd;
-    int   wlen;
-    char* wbuf;
-    char* wpos;
+    xSocket fd;
+    int     wlen;
+    char*   wbuf;
+    char*   wpos;
 
-    int	  rlen;
-    char* rbuf;
-    char* rpos;
+    int	    rlen;
+    char*   rbuf;
+    char*   rpos;
 
     void*   userdata;  // 用户数据指针
     aeFileEvent* ev;

@@ -66,7 +66,7 @@ int on_packet(struct xChannel* s, char* buf, int len) {
     uint8_t is_request = *(const uint8_t*)(buf + 7);
     uint32_t pkg_id = *(const uint32_t*)(buf + 8);
 
-    if (pkg_len > len) {
+    if (pkg_len > (int)len) {
         printf("包不全等待继续接受: %d vs %d\n", pkg_len, len);
         return 0;
     }
@@ -142,9 +142,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int server_fd = xchannel_listen(port, NULL, on_packet, on_close, NULL);
-    if (server_fd == ANET_ERR) {
-        printf("创建服务器失败: %d\n", server_fd);
+    int res = xchannel_listen(port, NULL, on_packet, on_close, NULL);
+    if (res == ANET_ERR) {
+        printf("创建服务器失败: %d\n", res);
         return 1;
     }
 

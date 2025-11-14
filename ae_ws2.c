@@ -36,11 +36,11 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(eventLoop->apidata);
 }
 
-static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* fe) {
+static int aeApiAddEvent(aeEventLoop *eventLoop, xSocket fd, int mask, aeFileEvent* fe) {
     aeApiState *state = eventLoop->apidata;
 	
     if (mask & AE_PIPE) {
-        state->vm_pipe = (HANDLE) _get_osfhandle(fd);
+        state->vm_pipe = (HANDLE) _get_osfhandle((int)fd);
 		//        DWORD mode = PIPE_NOWAIT;
 		//        SetNamedPipeHandleState(state->vm_pipe,&mode,NULL,NULL);
     } else {
@@ -50,7 +50,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* 
     return 0;
 }
 
-static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
+static void aeApiDelEvent(aeEventLoop *eventLoop, xSocket fd, int mask) {
     aeApiState *state = eventLoop->apidata;
 	
     if (mask & AE_PIPE) {
@@ -69,7 +69,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
 	
-    retval = select(eventLoop->maxfd+1,
+    retval = select((int)eventLoop->maxfd+1,
 					&state->_rfds,&state->_wfds,NULL,tvp);
 	
     if (state->vm_pipe != INVALID_HANDLE_VALUE) {

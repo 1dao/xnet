@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <mswsock.h>
 #include <io.h>
+#include <stdio.h>
 #include "ae.h"
 #include "zmalloc.h"
 
@@ -39,17 +40,16 @@ static void aeApiFree(aeEventLoop* eventLoop) {
     }
 }
 
-static int aeApiAddEvent(aeEventLoop* eventLoop, int fd, int mask, aeFileEvent* fe) {
+static int aeApiAddEvent(aeEventLoop* eventLoop, xSocket fd, int mask, aeFileEvent* fe) {
     aeApiState* state = eventLoop->apidata;
-    SOCKET socket = (SOCKET)fd;
-    if (CreateIoCompletionPort((HANDLE)socket, state->iocp, (ULONG_PTR)fe, 0) == NULL) {
+    if (CreateIoCompletionPort((HANDLE)fd, state->iocp, (ULONG_PTR)fe, 0) == NULL) {
         return -1;
     }
     state->eventCount++;
     return 0;
 }
 
-static void aeApiDelEvent(aeEventLoop* eventLoop, int fd, int mask) {
+static void aeApiDelEvent(aeEventLoop* eventLoop, xSocket fd, int mask) {
     aeApiState* state = eventLoop->apidata;
     state->eventCount--;
 }
@@ -86,7 +86,7 @@ static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
             eventLoop->fired[numevents].trans = bytesTransferred;
             numevents++;
 
-            printf("Queued event: mask=%d, trans=%d\n", mask, bytesTransferred);
+            printf("Queued event: mask=%d, trans=%d\n", mask, (int)bytesTransferred);
         }
     }
     else if (!result && overlapped != NULL) {

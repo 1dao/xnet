@@ -54,7 +54,7 @@ int req_state_len(struct request *req,char *sb) {
     int term=0, first=0;
     char c;
     size_t i = req->pos;
-    int pos=i;
+    int pos=(int)i;
 
     while((c = req->querybuf[i]) != '\0') {
         first++;

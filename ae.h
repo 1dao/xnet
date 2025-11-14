@@ -37,6 +37,8 @@
 extern "C" {
 #endif
 
+#include "fmacros.h"
+
 #define AE_SETSIZE (1024*10)    /* Max number of fd supported */
 
 #define AE_OK 0
@@ -58,13 +60,15 @@ extern "C" {
 #ifdef _WIN32
     #define AE_USING_IOCP
 #endif
+
 struct aeEventLoop;
 
 /* Types and data structures, trans for iocp */
-typedef int     aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask, int trans);
+typedef int     aeFileProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans);
 typedef int     aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
 typedef void    aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
 typedef void    aeBeforeSleepProc(struct aeEventLoop *eventLoop);
+
 
 /* File event structure */
 typedef struct aeFileEvent {
@@ -88,15 +92,15 @@ typedef struct aeTimeEvent {
 
 /* A fired event */
 typedef struct aeFiredEvent {
-    int fd;
-    int mask;
-    int trans;
+    xSocket fd;
+    int     mask;
+    int     trans;
     aeFileEvent* fe;
 } aeFiredEvent;
 
 /* State of an event based program */
 typedef struct aeEventLoop {
-    int maxfd;
+    xSocket maxfd;
     long long timeEventNextId;
     aeFileEvent events[AE_SETSIZE];     /* Registered events */
     int         efhead;                 /* freehead */
@@ -113,15 +117,15 @@ aeEventLoop *aeCreateEventLoop(void);
 aeEventLoop *aeGetCurEventLoop(void);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
-int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
+int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
         aeFileProc *proc, void *clientData, aeFileEvent** ev);
-void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, aeFileEvent* fe, int mask);
+void aeDeleteFileEvent(aeEventLoop *eventLoop, xSocket fd, aeFileEvent* fe, int mask);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc);
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
-int aeWait(int fd, int mask, long long milliseconds);
+int aeWait(xSocket fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);
 void aeFramePoll(aeEventLoop* eventLoop);
 char *aeGetApiName(void);

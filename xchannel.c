@@ -8,9 +8,8 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <mswsock.h>
-#else
-#include <stdio.h>
 #endif
+#include <stdio.h>
 
 #if !defined(_WIN32)
 #include <sys/socket.h>
@@ -21,8 +20,6 @@
 #include "anet.h"
 
 #define CHANNEL_BUFF_MAX (2*1024*1024)
-#define container_of(ptr, type, member) \
-    ((type *)((char *)(ptr) - offsetof(type, member)))
 
 typedef struct {
 #ifdef   AE_USING_IOCP
@@ -43,7 +40,7 @@ typedef struct {
 #endif
 } channel_context_t;
 
-static xChannel* create_channel(int fd, void* userdata) {
+static xChannel* create_channel(xSocket fd, void* userdata) {
     xChannel* channel = zmalloc(sizeof(xChannel));
     if (!channel) return NULL;
 
@@ -80,7 +77,7 @@ static void free_channel(xChannel* channel) {
     zfree(channel);
 }
 
-static channel_context_t* create_context(int fd, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
+static channel_context_t* create_context(xSocket fd, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
     channel_context_t* ctx = zmalloc(sizeof(channel_context_t));
     if (!ctx) return NULL;
     ctx->channel = create_channel(fd, userdata);
@@ -133,16 +130,16 @@ static int on_data(channel_context_t* ctx) {
     for (int i = 0; i < 10; i++) {
         if (!ctx->fpack) {
             if (s->rpos > s->rbuf) {
-                int len = s->rpos - s->rbuf;
+                int len = (int)(s->rpos - s->rbuf);
                 xchannel_send(s, s->rbuf, len);
                 s->rpos = s->rbuf;
             }
             break;
         }
 
-        int processed = ctx->fpack(s, s->rbuf, s->rpos - s->rbuf);
+        int processed = ctx->fpack(s, s->rbuf, (int)(s->rpos - s->rbuf));
         if (processed > 0) {
-            int remaining = (s->rpos - s->rbuf) - processed;
+            int remaining = (int)(s->rpos - s->rbuf) - processed;
             if (remaining > 0) {
                 memmove(s->rbuf, s->rbuf + processed, remaining);
             } else {
@@ -180,9 +177,9 @@ inline static int initializeAcceptEx(SOCKET listenSocket) {
     return 0;
 }
 
-inline static int aePostIocpAccept(int socket, OVERLAPPED* overlapped) {
+inline static int aePostIocpAccept(xSocket socket, OVERLAPPED* overlapped) {
     channel_context_t* ctx = container_of(overlapped, channel_context_t, rop);
-    SOCKET acceptSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+    xSocket acceptSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (acceptSocket == INVALID_SOCKET)
         return -1;
     ctx->new_fd = acceptSocket;
@@ -205,7 +202,7 @@ inline static int aePostIocpAccept(int socket, OVERLAPPED* overlapped) {
     return 0;
 }
 
-inline static int aePostIocpRead(int socket, OVERLAPPED* overlapped) {
+inline static int aePostIocpRead(xSocket socket, OVERLAPPED* overlapped) {
     channel_context_t* ctx = container_of(overlapped, channel_context_t, rop);
     xChannel* s = ctx->channel;
 
@@ -223,7 +220,7 @@ inline static int aePostIocpRead(int socket, OVERLAPPED* overlapped) {
     return 0;
 }
 
-inline static int aePostIocpWrite(int socket, OVERLAPPED* overlapped) {
+inline static int aePostIocpWrite(xSocket socket, OVERLAPPED* overlapped) {
     channel_context_t* ctx = container_of(overlapped, channel_context_t, wop);
     DWORD bytesSent = 0;
     DWORD dwFlags = 0;
@@ -252,7 +249,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
     if (!ctx || !ctx->channel) return AE_ERR;
 
     xChannel* s = ctx->channel;
-    int fd = s->fd;
+    xSocket fd = s->fd;
 #ifndef AE_USING_IOCP
     int available = s->rlen - (s->rpos - s->rbuf);
     if (available <= 0) {
@@ -286,13 +283,13 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
     return AE_OK;
 }
 
-int aeProcWrite(struct aeEventLoop* eventLoop, int fd, void* client_data, int mask, int trans) {
+int aeProcWrite(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, int mask, int trans) {
     channel_context_t* ctx = (channel_context_t*)client_data;
     if (!ctx || !ctx->channel) return AE_ERR;
 
     xChannel* s = ctx->channel;
     fd = s->fd;
-    int slen = s->wpos - s->wbuf;
+    int slen = (int)(s->wpos - s->wbuf);
     if (slen <= 0) {
         s->wpos = s->wbuf;
         return AE_OK;
@@ -335,7 +332,7 @@ int aeProcWrite(struct aeEventLoop* eventLoop, int fd, void* client_data, int ma
     return AE_OK;
 }
 
-int aeProcEvent(struct aeEventLoop* eventLoop, int fd, void* client_data, int mask, int trans) {
+int aeProcEvent(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, int mask, int trans) {
     if (mask & AE_READABLE) {
         return aeProcRead(eventLoop, client_data, mask, trans);
     } else if (mask & AE_WRITABLE) {
@@ -345,7 +342,7 @@ int aeProcEvent(struct aeEventLoop* eventLoop, int fd, void* client_data, int ma
     }
 }
 
-int aeProcAccept(struct aeEventLoop* eventLoop, int fd, void* client_data, int mask, int trans) {
+int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, int mask, int trans) {
     channel_context_t* cur = (channel_context_t*)client_data;
     if (!cur) return AE_ERR;
 	fd = cur->channel->fd;
@@ -383,7 +380,7 @@ int aeProcAccept(struct aeEventLoop* eventLoop, int fd, void* client_data, int m
 #else
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
-    int cfd = anetTcpAccept(NULL, fd, (struct sockaddr*)&sa, &salen);
+    xSocket cfd = anetTcpAccept(NULL, fd, (struct sockaddr*)&sa, &salen);
 
     if (cfd == ANET_ERR) {
         printf("Accept error on fd: %d\n", fd);
@@ -430,12 +427,12 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
     }
 
     char err[ANET_ERR_LEN];
-    int fd = anetTcpServer(err, port, bindaddr);
+    xSocket fd = anetTcpServer(err, port, bindaddr);
     if (fd == ANET_ERR) {
         printf("Create TCP server error: %s\n", err);
         return AE_ERR;
     }
-    printf("Listening on %s:%d, fd: %d\n", bindaddr ? bindaddr : "0.0.0.0", port, fd);
+    printf("Listening on %s:%d, fd: %d\n", bindaddr ? bindaddr : "0.0.0.0", port, (int)fd);
 
     channel_context_t* listen_ctx = create_context(fd, fpack, fclose, userdata);
     if (!listen_ctx) {
@@ -445,7 +442,7 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
 
     aeFileEvent* fe = NULL;
     if (aeCreateFileEvent(el, fd, AE_READABLE, aeProcAccept, listen_ctx, &fe) == AE_ERR) {
-        printf("Failed to create accept event, fd: %d\n", fd);
+        printf("Failed to create accept event, fd: %d\n", (int)fd);
         free_channel_context(listen_ctx);
         anetCloseSocket(fd);
         return AE_ERR;
@@ -474,7 +471,7 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
     }
 
     char err[ANET_ERR_LEN];
-    int fd = anetTcpConnect(err, addr, port);
+    xSocket fd = anetTcpConnect(err, addr, port);
     if (fd == ANET_ERR) {
         printf("Connect to %s:%d error: %s\n", addr, port, err);
         return NULL;
@@ -486,7 +483,7 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
         return NULL;
     }
     anetNonBlock(NULL, fd);
-    printf("Connected to %s:%d, fd: %d\n", addr, port, fd);
+    printf("Connected to %s:%d, fd: %d\n", addr, port, (int)fd);
 
     channel_context_t* client_ctx = create_context(fd, fpack, fclose, userdata);
     if (!client_ctx) {
@@ -496,7 +493,7 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
 
     aeFileEvent* client_fe = NULL;
     if (aeCreateFileEvent(el, fd, AE_READABLE | AE_WRITABLE, aeProcEvent, client_ctx, &client_fe) == AE_ERR) {
-        printf("Failed to create read event for connection, fd: %d\n", fd);
+        printf("Failed to create read event for connection, fd: %d\n", (int)fd);
         free_channel_context(client_ctx);
         anetCloseSocket(fd);
         return NULL;
@@ -514,9 +511,9 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
 int xchannel_send(xChannel* s, char* buf, int len) {
     if (!s || !s->wbuf) return 0;
 
-    int remain = s->wlen - (s->wpos - s->wbuf);
+    int remain = s->wlen - (int)(s->wpos - s->wbuf);
     if (remain < len) {
-        printf("Send buffer full, fd: %d\n", s->fd);
+        printf("Send buffer full, fd: %d\n", (int)s->fd);
         return 0;
     }
 
@@ -571,7 +568,7 @@ int xchannel_rpc(struct xChannel* s, char* buf, int len) {
 
 int xchannel_close(struct xChannel* s) {
     if (!s) return AE_ERR;
-    printf("Closing channel, fd: %d\n", s->fd);
+    printf("Closing channel, fd: %d\n", (int)s->fd);
 
     aeFileEvent* ev = s->ev;
     aeEventLoop* el = aeGetCurEventLoop();
