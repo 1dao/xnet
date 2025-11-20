@@ -126,7 +126,7 @@ int send_msg(xChannel* self, uint16_t protocol, bool is_rpc, const char* data, i
     // 发送请求包
     printf("发送请求包 - 长度: %d, 协议: %d, 包ID: %d\n", packet_len, protocol, pkg_id);
     pkg_id++;
-    int send_len = xchannel_send(self, request_packet, packet_len);
+    int send_len = xchannel_rawsend(self, request_packet, packet_len);
     if (send_len != packet_len) {
         printf("发送数据失败，发送了 %d/%d 字节\n", send_len, packet_len);
         zfree(request_packet);

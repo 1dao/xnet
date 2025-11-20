@@ -118,7 +118,7 @@ int on_packet(struct xChannel* s, char* buf, int len) {
         memcpy(response + 7, &is_response, 1);
         memcpy(response + 8, &pkg_id, 4);
         memcpy(response + 12, handler_response, handler_response_len);
-		xchannel_send(s, response, resp_pkg_len);
+		xchannel_rawsend(s, response, resp_pkg_len);
     }
     return pkg_len;
 }

@@ -54,14 +54,15 @@ struct CoroutineWrapper : CoroutineBase {
     void resume(void* param) override {
         if (!is_done()) {
             // 保存之前的协程ID（用于嵌套恢复）
-            int previous_id = g_current_coroutine_id;
+            // int previous_id = g_current_coroutine_id;
 
             // 设置当前协程ID
             g_current_coroutine_id = coroutine_id;
             task.resume(param);
 
             // 恢复之前的协程ID
-            g_current_coroutine_id = previous_id;
+            // g_current_coroutine_id = previous_id;
+            g_current_coroutine_id = -1;
         }
     }
 

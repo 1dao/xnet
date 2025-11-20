@@ -18,6 +18,7 @@
 
 #include "xchannel.h"
 #include "anet.h"
+#include "xrpc.h"
 
 #define CHANNEL_BUFF_MAX (2*1024*1024)
 
@@ -41,12 +42,12 @@ typedef struct {
 } channel_context_t;
 
 static xChannel* create_channel(xSocket fd, void* userdata) {
-    xChannel* channel = zmalloc(sizeof(xChannel));
+    xChannel* channel = (xChannel*)zmalloc(sizeof(xChannel));
     if (!channel) return NULL;
 
     channel->fd = fd;
-    channel->rbuf = zmalloc(CHANNEL_BUFF_MAX);
-    channel->wbuf = zmalloc(CHANNEL_BUFF_MAX);
+    channel->rbuf = (char*)zmalloc(CHANNEL_BUFF_MAX);
+    channel->wbuf = (char*)zmalloc(CHANNEL_BUFF_MAX);
     channel->rpos = channel->rbuf;
     channel->wpos = channel->wbuf;
     channel->rlen = CHANNEL_BUFF_MAX;
@@ -78,7 +79,7 @@ static void free_channel(xChannel* channel) {
 }
 
 static channel_context_t* create_context(xSocket fd, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
-    channel_context_t* ctx = zmalloc(sizeof(channel_context_t));
+    channel_context_t* ctx = (channel_context_t*)zmalloc(sizeof(channel_context_t));
     if (!ctx) return NULL;
     ctx->channel = create_channel(fd, userdata);
     ctx->fpack   = fpack;
@@ -115,7 +116,7 @@ static void free_channel_context(channel_context_t* ctx) {
 
 #ifdef AE_USING_IOCP
     if (ctx->new_fd != INVALID_SOCKET) {
-        closesocket(ctx->new_fd);
+        //closesocket(ctx->new_fd);
         ctx->new_fd = INVALID_SOCKET;
     }
 #endif
@@ -127,18 +128,18 @@ static int on_data(channel_context_t* ctx) {
     if (!ctx || !ctx->channel) return AE_ERR;
 
     xChannel* s = ctx->channel;
+	aeEventLoop* el = aeGetCurEventLoop();
+	size_t pkg_len = 0, hdr_len = 0;
     for (int i = 0; i < 10; i++) {
-        if (!ctx->fpack) {
-            if (s->rpos > s->rbuf) {
-                int len = (int)(s->rpos - s->rbuf);
-                xchannel_send(s, s->rbuf, len);
-                s->rpos = s->rbuf;
-            }
-            break;
-        }
+        hdr_len = _xchannel_read_header(s, &pkg_len);
+        if (hdr_len < 0) return hdr_len == PACKET_INCOMPLETE ? AE_OK: AE_ERR;
+		if (el->nrpc > 0 && hdr_len == 4 && xrpc_resp_blp4(s)) // TODO: 支持更多协议
+            continue;
+        if (pkg_len <= 0) return AE_ERR;
 
-        int processed = ctx->fpack(s, s->rbuf, (int)(s->rpos - s->rbuf));
+        int processed = ctx->fpack(s, s->rbuf+ hdr_len, (int)(pkg_len));
         if (processed > 0) {
+            processed = hdr_len + pkg_len;
             int remaining = (int)(s->rpos - s->rbuf) - processed;
             if (remaining > 0) {
                 memmove(s->rbuf, s->rbuf + processed, remaining);
@@ -252,27 +253,27 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
     xSocket fd = s->fd;
 #ifndef AE_USING_IOCP
     int available = s->rlen - (s->rpos - s->rbuf);
-    if (available <= 0) {
+    if (available < 0) {
         xchannel_close(s);
         return AE_ERR;
-    }
-
-    trans = anetRead(fd, s->rpos, available);
-    if (trans <= 0) {
-        if (trans == 0) {
-            printf("Connection closed by peer, fd: %d\n", fd);
+    } else if (available == 0) {
+        trans = 0;
+    } else {
+        trans = anetRead(fd, s->rpos, available);
+        if (trans <= 0) {
+            if (trans == 0) {
+                printf("Connection closed by peer, fd: %d\n", fd);
+            } else {
+                printf("Read error on fd: %d\n", fd);
+            }
+            xchannel_close(s);
+            return AE_ERR;
         }
-        else {
-            printf("Read error on fd: %d\n", fd);
-        }
-        xchannel_close(s);
-        return AE_ERR;
-    }
-    s->rpos += trans;
-#else
-    if (trans > 0) 
         s->rpos += trans;
+    }
 #endif
+    if (trans > 0)
+        s->rpos += trans;
     if (on_data(ctx) == AE_ERR || trans==0) {
         xchannel_close(s);
         return AE_ERR;
@@ -352,15 +353,15 @@ int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, i
         anetNonBlock(NULL, new_fd);     // 设置非阻塞
         anetTcpNoDelay(NULL, new_fd);   // 禁用Nagle算法
 
-        channel_context_t* client_ctx = create_context(
-            (int)new_fd, cur->fpack, cur->fclose, cur->userdata);
+        channel_context_t* client_ctx = create_context(new_fd, cur->fpack, cur->fclose, cur->userdata);
         if (!client_ctx) {
             closesocket(new_fd);
             return AE_ERR;
         }
+        client_ctx->channel->pproto = cur->channel->pproto;
 
 		aeFileEvent* fe = NULL;
-        if (aeCreateFileEvent(eventLoop, (int)new_fd, AE_READABLE|AE_WRITABLE, aeProcEvent, client_ctx, &fe) == AE_ERR) {
+        if (aeCreateFileEvent(eventLoop, new_fd, AE_READABLE|AE_WRITABLE, aeProcEvent, client_ctx, &fe) == AE_ERR) {
             printf("Failed to create read event for new connection\n");
             free_channel_context(client_ctx);
             anetCloseSocket(new_fd);
@@ -369,7 +370,7 @@ int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, i
 
         client_ctx->channel->ev = fe;
         aeDeleteFileEvent(eventLoop, fd, fe, AE_WRITABLE); // register & not start
-        aePostIocpRead((int)new_fd, &client_ctx->rop);
+        aePostIocpRead(new_fd, &client_ctx->rop);
 
         cur->new_fd = INVALID_SOCKET;
         aePostIocpAccept(fd, &cur->rop);
@@ -411,7 +412,7 @@ int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, i
     return AE_OK;
 }
 
-int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
+int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata, xProto proto) {
     aeEventLoop* el = aeGetCurEventLoop();
     if (!el) {
         printf("No event loop available\n");
@@ -439,6 +440,7 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
         anetCloseSocket(fd);
         return AE_ERR;
     }
+    listen_ctx->channel->pproto = proto;
 
     aeFileEvent* fe = NULL;
     if (aeCreateFileEvent(el, fd, AE_READABLE, aeProcAccept, listen_ctx, &fe) == AE_ERR) {
@@ -455,7 +457,7 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
     return AE_OK;
 }
 
-xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata) {
+xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_proc* fclose, void* userdata, xProto proto) {
     aeEventLoop* el = aeGetCurEventLoop();
     if (!el) {
         printf("No event loop available\n");
@@ -490,6 +492,7 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
         anetCloseSocket(fd);
         return NULL;
     }
+    client_ctx->channel->pproto = proto;
 
     aeFileEvent* client_fe = NULL;
     if (aeCreateFileEvent(el, fd, AE_READABLE | AE_WRITABLE, aeProcEvent, client_ctx, &client_fe) == AE_ERR) {
@@ -508,7 +511,50 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
     return client_ctx->channel;
 }
 
-int xchannel_send(xChannel* s, char* buf, int len) {
+int xchannel_send(xChannel* s, const char* buf, int len) {
+    if (!s || !s->wbuf || len<=0 ) return 0;
+    if (_xchannel_write_header(s, len) < 0) {
+        printf("Send buffer full, fd: %d\n", (int)s->fd);
+        return 0;
+    }
+    memcpy(s->wpos, buf, len);
+    s->wpos += len;
+
+#ifndef AE_USING_IOCP
+    int slen = s->wpos - s->wbuf;
+    int trans = anetWrite(s->fd, s->wbuf, slen);
+    if (trans <= 0) {
+        if (trans == 0) {
+            printf("Connection closed during write, fd: %d\n", s->fd);
+        } else {
+            printf("Write error on fd: %d\n", s->fd);
+        }
+        xchannel_close(s);
+        return AE_ERR;
+    }
+
+    if (slen == trans) {
+        s->wpos = s->wbuf;
+    } else {
+        memcpy(s->wbuf, buf + trans, slen - trans);
+        s->wpos = slen - trans;
+    }
+#else
+    aeFileEvent* ev = s->ev;
+    aeEventLoop* el = aeGetCurEventLoop();
+    channel_context_t* ctx = (channel_context_t*)ev->clientData;
+    if (el && (!(ev->mask & AE_WRITABLE))) {
+        ev->mask |= AE_WRITABLE;
+        if (aePostIocpWrite(s->fd, &ctx->wop) == AE_ERR) {
+            xchannel_close(s);
+            return AE_ERR;
+        }
+    }
+#endif
+    return len;
+}
+
+int xchannel_rawsend(xChannel* s, const char* buf, int len) {
     if (!s || !s->wbuf) return 0;
 
     int remain = s->wlen - (int)(s->wpos - s->wbuf);
@@ -522,7 +568,7 @@ int xchannel_send(xChannel* s, char* buf, int len) {
     if (s->wpos != s->wbuf) {
         memcpy(s->wpos, buf, len);
         s->wpos += len;
-        buf  = s->wbuf;
+        buf = s->wbuf;
         slen = s->wpos - s->wbuf;
     }
     int trans = anetWrite(s->fd, buf, slen);
@@ -538,7 +584,7 @@ int xchannel_send(xChannel* s, char* buf, int len) {
 
     if (slen == trans) {
         s->wpos = s->wbuf;
-    } else if(buf==s->wbuf) {
+    } else if (buf == s->wbuf) {
         memmove(s->wbuf, s->wbuf + trans, slen - trans);
         s->wpos = s->wbuf + slen - trans;
     } else {
@@ -579,8 +625,8 @@ int xchannel_close(struct xChannel* s) {
         ctx->fclose(s, NULL, 0);
 
         if (ctx) {
-            anetCloseSocket(s->fd);
             free_channel_context(ctx);
+            anetCloseSocket(s->fd);
         }
     } else {
         free_channel(s);

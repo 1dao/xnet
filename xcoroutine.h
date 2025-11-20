@@ -23,7 +23,6 @@
 // 简化的协程任务类型
 struct SimpleTask {
     struct promise_type {
-        std::optional<void*> current_param;
         int coroutine_id;
 
         promise_type() : coroutine_id(0) {}
@@ -49,31 +48,10 @@ struct SimpleTask {
 
         void return_void() {}
 
-        struct param_awaiter {
-            promise_type& promise;
-
-            bool await_ready() const noexcept {
-                return promise.current_param.has_value();
-            }
-
-            void await_suspend(std::coroutine_handle<>) noexcept {}
-
-            void* await_resume() noexcept {
-                if (promise.current_param.has_value()) {
-                    void* result = promise.current_param.value();
-                    promise.current_param.reset();
-                    return result;
-                }
-                return nullptr;
-            }
-        };
-
-        auto await_transform(int) {
-            return param_awaiter{ *this };
-        }
-
-        void set_param(void* param) {
-            current_param = param;
+        // 支持任何可等待类型
+        template<typename Awaitable>
+        auto await_transform(Awaitable&& awaitable) {
+            return std::forward<Awaitable>(awaitable);
         }
     };
 
@@ -108,9 +86,6 @@ struct SimpleTask {
 
     void resume(void* param) {
         if (handle_ && !handle_.done()) {
-            if (param) {
-                handle_.promise().set_param(param);
-            }
             handle_.resume();
         }
     }

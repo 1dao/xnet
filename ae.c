@@ -84,6 +84,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->efhead = 0;
+    eventLoop->nrpc = 0;
 
     for (int i = 0; i < AE_SETSIZE - 1; i++) {
         eventLoop->events[i].slot = i + 1;
