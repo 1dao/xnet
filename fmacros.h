@@ -23,18 +23,26 @@
 #endif
 
 #ifdef _WIN32
-#include <stdint.h>
+    #include <stdint.h>
     // 或者对于较老版本的 MSVC
 #ifndef _MSC_VER
-#include <stdint.h>
+    #include <stdint.h>
+    #else
+        // MSVC 2008 及更早版本可能需要自定义定义
+        typedef unsigned char uint8_t;
+        typedef unsigned short uint16_t;
+        typedef unsigned int uint32_t;
+        typedef unsigned long long uint64_t;
+    #endif
 #else
-    // MSVC 2008 及更早版本可能需要自定义定义
-    typedef unsigned char uint8_t;
-    typedef unsigned short uint16_t;
-    typedef unsigned int uint32_t;
-    typedef unsigned long long uint64_t;
-#endif
-#else
-#include <stdint.h>
+    #include <stdint.h>
+    #ifndef _WIN32
+        // Linux/Unix 平台类型定义
+        #ifndef BOOL
+            #define BOOL int
+            #define TRUE 1
+            #define FALSE 0
+        #endif
+    #endif
 #endif
 #endif
