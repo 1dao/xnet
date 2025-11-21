@@ -36,6 +36,7 @@
     #endif
 #else
     #include <stdint.h>
+    #include <stddef.h>
     #ifndef _WIN32
         // Linux/Unix 平台类型定义
         #ifndef BOOL
