@@ -134,6 +134,7 @@
     <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="request.c" />
     <ClCompile Include="response.c" />
+    <ClCompile Include="xlog.c" />
     <ClCompile Include="zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
@@ -144,6 +145,7 @@
     <ClInclude Include="fmacros.h" />
     <ClInclude Include="request.h" />
     <ClInclude Include="response.h" />
+    <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="zmalloc.h" />
   </ItemGroup>

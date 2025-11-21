@@ -9,6 +9,7 @@
 #include "xchannel.h"
 #include "zmalloc.h"
 #include "xcoroutine.h"
+#include "xlog.h"
 
 #ifndef _WIN32
 #include <unistd.h>

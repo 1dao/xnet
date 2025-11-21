@@ -16,6 +16,7 @@
     <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="ae_iocp.c" />
     <ClCompile Include="xchannel.c" />
+    <ClCompile Include="xlog.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
@@ -27,5 +28,6 @@
     <ClInclude Include="xcoroutine.h" />
     <ClInclude Include="xchannel.h" />
     <ClInclude Include="xmutex.h" />
+    <ClInclude Include="xlog.h" />
   </ItemGroup>
 </Project>
