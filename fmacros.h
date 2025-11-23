@@ -25,8 +25,8 @@
 #ifdef _WIN32
     #include <stdint.h>
     // 或者对于较老版本的 MSVC
-#ifndef _MSC_VER
-    #include <stdint.h>
+    #ifndef _MSC_VER
+        #include <stdint.h>
     #else
         // MSVC 2008 及更早版本可能需要自定义定义
         typedef unsigned char uint8_t;
