@@ -1,4 +1,4 @@
-#ifndef _XRPC_H
+ï»¿#ifndef _XRPC_H
 #define _XRPC_H
 
 #include "xchannel.h"
@@ -13,11 +13,11 @@ enum XRpcError {
     XRPC_INVALID_RESPONSE = -4
 };
 
-// ¼ì²é RPC ÏìÓ¦
+// æ£€æŸ¥ RPC å“åº”
 bool xrpc_resp_blp4(xChannel* channel);
 
-// RPC µ÷ÓÃº¯ÊıÉùÃ÷
+// RPC è°ƒç”¨å‡½æ•°å£°æ˜
 template<typename... Args>
-xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, const Args&... args);
+xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, Args&&... args);
 // int xrpc_res_blp4(xChannel* channel, )
 #endif // _XRPC_H

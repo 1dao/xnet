@@ -1,15 +1,15 @@
-#include "ae.h"
+ï»¿#include "ae.h"
 #include "xchannel.h"
 #include "xpack.h"
 #include "xcoroutine.h"
 #include "xrpc.h"
-#include "xrpc_template.h"  // °üº¬Ä£°åÊµÏÖ
+#include "xrpc_template.h"  // åŒ…å«æ¨¡æ¿å®ç°
 #include <iostream>
 #include <string>
 #include <thread>
 #include <chrono>
 
-// ¸¨Öúº¯Êı
+// è¾…åŠ©å‡½æ•°
 std::string xpack_buff_to_string(const XPackBuff& buff) {
     if (buff.len <= 0 || !buff.get()) return "";
     return std::string(buff.get(), buff.len);
@@ -19,18 +19,18 @@ XPackBuff string_to_xpack_buff(const std::string& str) {
     return XPackBuff(str.c_str(), static_cast<int>(str.length()));
 }
 
-// ¿Í»§¶ËĞ­Òé´¦Àíº¯Êı
+// å®¢æˆ·ç«¯åè®®å¤„ç†å‡½æ•°
 int client_packet_handler(xChannel* channel, char* buf, int len) {
     return xrpc_resp_blp4(channel) ? len : -1;
 }
 
-// ¿Í»§¶ËÁ¬½Ó¹Ø±Õ´¦Àíº¯Êı
+// å®¢æˆ·ç«¯è¿æ¥å…³é—­å¤„ç†å‡½æ•°
 int client_close_handler(xChannel* channel, char* buf, int len) {
     std::cout << "Connection to server closed" << std::endl;
     return 0;
 }
 
-// ×ÛºÏ²âÊÔĞ­³Ì
+// ç»¼åˆæµ‹è¯•åç¨‹
 void* comprehensive_test_coroutine(void* arg) {
     return new SimpleTask([arg]() -> SimpleTask {
         std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
@@ -40,7 +40,7 @@ void* comprehensive_test_coroutine(void* arg) {
             co_return;
         }
 
-        // ²âÊÔ1: »ù±¾ÔËËã
+        // æµ‹è¯•1: åŸºæœ¬è¿ç®—
         std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
         for (int i = 1; i <= 3; i++) {
             XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3);
@@ -55,7 +55,7 @@ void* comprehensive_test_coroutine(void* arg) {
             }
         }
 
-        // ²âÊÔ2: ×Ö·û´®´¦Àí
+        // æµ‹è¯•2: å­—ç¬¦ä¸²å¤„ç†
         std::cout << "\n--- Testing String Processing ---" << std::endl;
         std::vector<std::string> test_strings = { "test1", "test2", "test3" };
         for (const auto& str : test_strings) {
@@ -72,10 +72,10 @@ void* comprehensive_test_coroutine(void* arg) {
             }
         }
 
-        // ²âÊÔ3: ´íÎó´¦Àí
+        // æµ‹è¯•3: é”™è¯¯å¤„ç†
         std::cout << "\n--- Testing Error Handling ---" << std::endl;
 
-        // ²âÊÔÎŞĞ§Ğ­Òé
+        // æµ‹è¯•æ— æ•ˆåè®®
         XPackBuff error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
         if (!error_result.success()) {
             std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
@@ -86,7 +86,61 @@ void* comprehensive_test_coroutine(void* arg) {
         }());
 }
 
-// ¿Í»§¶ËÖ÷º¯Êı
+// ç®€åŒ–åçš„åç¨‹å‡½æ•°å†™æ³•
+SimpleTask comprehensive_test_run_task(void* arg) {
+    std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
+    xChannel* g_client_channel = static_cast<xChannel*>(arg);
+    if (!g_client_channel) {
+        std::cout << "No connection to server" << std::endl;
+        co_return;
+    }
+
+    // æµ‹è¯•1: åŸºæœ¬è¿ç®—
+    std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
+    for (int i = 1; i <= 3; i++) {
+        XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3);
+        if (result.success()) {
+            auto unpacked = xpack_unpack(result.get(), result.len);
+            if (unpacked.size() >= 2) {
+                int sum = xpack_variant_data<int>(unpacked[0]);
+                std::string status = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[1]));
+                std::cout << "Test " << i << ": " << (i * 5) << " + " << (i * 3)
+                    << " = " << sum << " (" << status << ")" << std::endl;
+            }
+        }
+    }
+
+    // æµ‹è¯•2: å­—ç¬¦ä¸²å¤„ç†
+    std::cout << "\n--- Testing String Processing ---" << std::endl;
+    std::vector<std::string> test_strings = { "test1", "test2", "test3" };
+    for (const auto& str : test_strings) {
+        XPackBuff str_buff = string_to_xpack_buff(str);
+        XPackBuff result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
+        if (result.success()) {
+            auto unpacked = xpack_unpack(result.get(), result.len);
+            if (unpacked.size() >= 2) {
+                std::string processed = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[0]));
+                int code = xpack_variant_data<int>(unpacked[1]);
+                std::cout << "String test: '" << str << "' -> '" << processed
+                    << "' (code: " << code << ")" << std::endl;
+            }
+        }
+    }
+
+    // æµ‹è¯•3: é”™è¯¯å¤„ç†
+    std::cout << "\n--- Testing Error Handling ---" << std::endl;
+
+    // æµ‹è¯•æ— æ•ˆåè®®
+    XPackBuff error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
+    if (!error_result.success()) {
+        std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
+    }
+
+    std::cout << "\n=== Comprehensive Test Coroutine Finished ===" << std::endl;
+    co_return;
+}
+
+// å®¢æˆ·ç«¯ä¸»å‡½æ•°
 void client_main() {
     aeEventLoop* el = aeCreateEventLoop();
     if (!el) {
@@ -109,10 +163,11 @@ void client_main() {
 
     std::cout << "Connected to RPC server successfully" << std::endl;
 
-    int add_coro_id = coroutine_run(comprehensive_test_coroutine, channel);
+    //int add_coro_id = coroutine_run(comprehensive_test_coroutine, channel);
     //int str_coro_id = coroutine_run(string_coroutine, nullptr);
 
-    std::cout << "Started coroutines: Add=" << add_coro_id << ", String=" << "2222" << std::endl;
+    //std::cout << "Started coroutines: Add=" << add_coro_id << ", String=" << "2222" << std::endl;
+    coroutine_run_task(comprehensive_test_run_task, channel);
 
     auto start_time = std::chrono::steady_clock::now();
     while (coroutine_get_active_count()>0 || std::chrono::steady_clock::now() - start_time < std::chrono::seconds(10)) {

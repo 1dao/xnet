@@ -47,6 +47,13 @@ struct CoroutineWrapper : CoroutineBase {
         g_current_coroutine_id = coroutine_id;
     }
 
+    // 构造函数用于新的CoroutineTaskFunc类型（只接受SimpleTask和id）
+    CoroutineWrapper(SimpleTask&& t, int id)
+        : task(std::move(t)), coroutine_id(id), user_func(nullptr), user_arg(nullptr) {
+        // 设置内部promise的协程ID
+        task.get_promise().coroutine_id = id;
+    }
+
     bool is_done() const override {
         return task.done();
     }
@@ -170,6 +177,27 @@ public:
 
         // 注意：这里不调用 resume，因为 initial_suspend 返回 suspend_never
         // 协程会自动开始执行，直到遇到第一个挂起点
+
+        return coroutine_id;
+    }
+
+    // 添加新的coroutine_run_task方法
+    int coroutine_run_task(CoroutineTaskFunc func, void* arg) {
+        XMutexGuard guard(&map_mutex_);
+
+        int coroutine_id = generate_coroutine_id();
+        g_current_coroutine_id = coroutine_id;
+
+        // 直接使用函数返回的SimpleTask
+        SimpleTask task = func(arg);
+
+        auto wrapper = std::make_shared<CoroutineWrapper>(std::move(task), coroutine_id);
+        coroutine_map_[coroutine_id] = wrapper;
+
+        //// 初始恢复协程
+        //if (!wrapper->is_done()) {
+        //    wrapper->resume(nullptr);
+        //}
 
         return coroutine_id;
     }
@@ -315,6 +343,14 @@ int coroutine_run(void* (*func)(void*), void* arg) {
         return -1;
     }
     return g_manager->coroutine_run(func, arg);
+}
+
+int coroutine_run_task(CoroutineTaskFunc func, void* arg) {
+    if (!g_manager) {
+        std::cerr << "Coroutine manager not initialized" << std::endl;
+        return -1;
+    }
+    return g_manager->coroutine_run_task(func, arg);
 }
 
 int coroutine_run_variant(CoroutineFunc func, const VariantCoroutineArgs& args) {

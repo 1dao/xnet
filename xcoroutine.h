@@ -101,6 +101,7 @@ struct SimpleTask {
 
 // 协程函数类型
 typedef void* (*CoroutineFunc)(void*);
+typedef SimpleTask(*CoroutineTaskFunc)(void*);
 
 // 使用 std::variant 的多类型参数支持
 using CoroutineArg = std::variant<
@@ -191,6 +192,7 @@ void coroutine_uninit();
 
 // 单参数版本
 int coroutine_run(CoroutineFunc func, void* arg);
+int coroutine_run_task(CoroutineTaskFunc func, void* arg);
 
 // 使用 std::variant 的多参数版本
 int coroutine_run_variant(CoroutineFunc func, const VariantCoroutineArgs& args);

@@ -41,7 +41,7 @@ int server_packet_handler(xChannel* channel, char* buf, int len) {
             // 协议1：加法运算
             if (unpacked.size() >= 2) {
                 int a = xpack_variant_data<int>(unpacked[4]);
-                int b = xpack_variant_data<int>(unpacked[5]);
+                int b = 0;// xpack_variant_data<int>(unpacked[5]);
                 int result = a + b;
 
                 std::cout << "Processing protocol 1: " << a << " + " << b << " = " << result << std::endl;

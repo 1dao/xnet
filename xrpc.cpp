@@ -1,22 +1,22 @@
-#include "xrpc.h"
+ï»¿#include "xrpc.h"
 #include "ae.h"
 #include "xcoroutine.h"
 #include <iostream>
 #include "xpack.h"
 
 bool xrpc_resp_blp4(xChannel* channel) {
-    // ¼ì²éÊÇ·ñÓĞ×ã¹»Êı¾İ¶ÁÈ¡°ü³¤¶È
+    // æ£€æŸ¥æ˜¯å¦æœ‰è¶³å¤Ÿæ•°æ®è¯»å–åŒ…é•¿åº¦
     if (static_cast<int>(channel->rpos - channel->rbuf) < 4)
         return false;
 
     uint32_t net_pkg_len = *reinterpret_cast<uint32_t*>(channel->rbuf);
     uint32_t pkg_len = ntohl(net_pkg_len);
 
-    // ¼ì²éÊÇ·ñÊÕµ½ÍêÕû°ü
+    // æ£€æŸ¥æ˜¯å¦æ”¶åˆ°å®Œæ•´åŒ…
     if (static_cast<int>(channel->rpos - channel->rbuf) < static_cast<int>(pkg_len + 4))
         return false;
 
-    // ½âÎöĞ­ÒéÍ·
+    // è§£æåè®®å¤´
     uint16_t net_protocol = *reinterpret_cast<uint16_t*>(channel->rbuf + 4);
     uint16_t protocol = ntohs(net_protocol);
 
@@ -26,24 +26,24 @@ bool xrpc_resp_blp4(xChannel* channel) {
     uint32_t net_pkg_id = *reinterpret_cast<uint32_t*>(channel->rbuf + 8);
     uint32_t pkg_id = ntohl(net_pkg_id);
 
-    // ´¦ÀíÏìÓ¦°ü
+    // å¤„ç†å“åº”åŒ…
     if (request == 0 && pkg_id > 0) {
-        // ÌáÈ¡ÏìÓ¦Êı¾İ£¨Ìø¹ıÍ·²¿£º4×Ö½Ú³¤¶È + 8×Ö½ÚĞ­ÒéÍ·£©
+        // æå–å“åº”æ•°æ®ï¼ˆè·³è¿‡å¤´éƒ¨ï¼š4å­—èŠ‚é•¿åº¦ + 8å­—èŠ‚åè®®å¤´ï¼‰
         char* response_data = channel->rbuf + 12; // 4(len) + 2(protocol) + 2(request) + 4(pkg_id)
-        int response_len = static_cast<int>(pkg_len) - 8; // ¼õÈ¥Ğ­ÒéÍ·³¤¶È
+        int response_len = static_cast<int>(pkg_len) - 8; // å‡å»åè®®å¤´é•¿åº¦
 
         if (response_len < 0) {
             std::cout << "xrpc_check_resp: Invalid response length: " << response_len << std::endl;
             return false;
         }
 
-        // ´´½¨ XPackBuff
+        // åˆ›å»º XPackBuff
         XPackBuff result(response_data, response_len);
 
-        // Íê³É RPC µ÷ÓÃ
+        // å®Œæˆ RPC è°ƒç”¨
         RpcResponseManager::instance().complete_rpc(pkg_id, std::move(result));
 
-        // ÒÆ¶¯»º³åÇø
+        // ç§»åŠ¨ç¼“å†²åŒº
         int total_packet_size = static_cast<int>(pkg_len) + 4;
         int data_remaining = static_cast<int>(channel->rpos - channel->rbuf) - total_packet_size;
 

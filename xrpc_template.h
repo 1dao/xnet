@@ -7,27 +7,28 @@
 #include <iostream>
 
 template<typename... Args>
-xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, const Args&... args) {
+xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, Args&&... args) {
     int co_id = coroutine_self_id();
     if (co_id == -1) {
+        // å¦‚æœå½“å‰ä¸åœ¨åç¨‹ä¸Šä¸‹æ–‡ï¼Œç›´æ¥è¿”å›ä¸€ä¸ªé”™è¯¯ awaiter
         xrpc_awaiter awaiter;
-        awaiter.set_error(XRPC_NOT_IN_COROUTINE);
+        awaiter.set_error(XRPC_NOT_IN_COROUTINE); // è®¾ç½®é”™è¯¯ç 
         std::cout << "xrpc_pcall: Not in coroutine context" << std::endl;
         return awaiter;
     }
 
-    // ´´½¨ awaiter ¶ÔÏó
+    // åˆ›å»º awaiter
     auto awaiter = std::make_unique<xrpc_awaiter>();
     awaiter->set_pkg_id(co_id);
 
-    // ´ò°üºÍ·¢ËÍÇëÇó
+    // æ„é€ å¹¶å‘é€åŒ…
     uint16_t is_req = 1;
     uint32_t pkg_id = co_id; // htonl(co_id);
-    XPackBuff packed = xpack_pack(true, protocol, pkg_id, is_req, args...);
+    XPackBuff packed = xpack_pack(true, protocol, pkg_id, is_req, std::forward<Args>(args)...);
 
     if (xchannel_send(channel, packed.get(), packed.len) == packed.len) {
-        // ×¢²á RPC µÈ´ı - ÒÆ¶¯ awaiter
-        RpcResponseManager::instance().register_rpc(co_id, std::move(awaiter));
+        // æ³¨å†Œ RPC ç­‰å¾…
+        // RpcResponseManager::instance().register_rpc(co_id, std::move(awaiter));
 
         aeEventLoop* el = aeGetCurEventLoop();
         if (el) {
@@ -35,16 +36,16 @@ xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, const Args&... arg
         }
 
         std::cout << "xrpc_pcall: Sent RPC request, pkg_id: " << co_id
-            << ", protocol: " << protocol << std::endl;
+                  << ", protocol: " << protocol << std::endl;
 
-        // ´´½¨Ò»¸öĞÂµÄ awaiter ·µ»Ø¸øĞ­³Ì
-        xrpc_awaiter result_awaiter;
-        result_awaiter.set_pkg_id(co_id);
-        return result_awaiter;
-    }
-    else {
+        // è¿”å›ä¸€ä¸ªæ–°çš„ awaiter
+        xrpc_awaiter res;
+        res.set_pkg_id(co_id);
+        return res;
+    } else {
+        // å¦‚æœå‘é€å¤±è´¥ï¼Œè¿”å›ä¸€ä¸ªé”™è¯¯ awaiter
         xrpc_awaiter awaiter;
-        awaiter.set_error(XRPC_SEND_FAILED);
+        awaiter.set_error(XRPC_SEND_FAILED); // è®¾ç½®å‘é€å¤±è´¥é”™è¯¯ç 
         std::cout << "xrpc_pcall: Send failed" << std::endl;
         return awaiter;
     }
