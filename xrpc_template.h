@@ -7,12 +7,12 @@
 #include <iostream>
 
 template<typename... Args>
-xrpc_awaiter xrpc_pcall_blp4(xChannel* channel, uint16_t protocol, const Args&... args) {
+xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, const Args&... args) {
     int co_id = coroutine_self_id();
     if (co_id == -1) {
         xrpc_awaiter awaiter;
         awaiter.set_error(XRPC_NOT_IN_COROUTINE);
-        std::cout << "xrpc_pcall_blp4: Not in coroutine context" << std::endl;
+        std::cout << "xrpc_pcall: Not in coroutine context" << std::endl;
         return awaiter;
     }
 
@@ -34,7 +34,7 @@ xrpc_awaiter xrpc_pcall_blp4(xChannel* channel, uint16_t protocol, const Args&..
             el->nrpc += 1;
         }
 
-        std::cout << "xrpc_pcall_blp4: Sent RPC request, pkg_id: " << co_id
+        std::cout << "xrpc_pcall: Sent RPC request, pkg_id: " << co_id
             << ", protocol: " << protocol << std::endl;
 
         // 创建一个新的 awaiter 返回给协程
@@ -45,7 +45,7 @@ xrpc_awaiter xrpc_pcall_blp4(xChannel* channel, uint16_t protocol, const Args&..
     else {
         xrpc_awaiter awaiter;
         awaiter.set_error(XRPC_SEND_FAILED);
-        std::cout << "xrpc_pcall_blp4: Send failed" << std::endl;
+        std::cout << "xrpc_pcall: Send failed" << std::endl;
         return awaiter;
     }
 }

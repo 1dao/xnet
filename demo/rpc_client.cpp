@@ -43,7 +43,7 @@ void* comprehensive_test_coroutine(void* arg) {
         // 测试1: 基本运算
         std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
         for (int i = 1; i <= 3; i++) {
-            XPackBuff result = co_await xrpc_pcall_blp4(g_client_channel, 1, i * 5, i * 3);
+            XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3);
             if (result.success()) {
                 auto unpacked = xpack_unpack(result.get(), result.len);
                 if (unpacked.size() >= 2) {
@@ -60,7 +60,7 @@ void* comprehensive_test_coroutine(void* arg) {
         std::vector<std::string> test_strings = { "test1", "test2", "test3" };
         for (const auto& str : test_strings) {
             XPackBuff str_buff = string_to_xpack_buff(str);
-            XPackBuff result = co_await xrpc_pcall_blp4(g_client_channel, 2, str_buff);
+            XPackBuff result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
             if (result.success()) {
                 auto unpacked = xpack_unpack(result.get(), result.len);
                 if (unpacked.size() >= 2) {
@@ -76,7 +76,7 @@ void* comprehensive_test_coroutine(void* arg) {
         std::cout << "\n--- Testing Error Handling ---" << std::endl;
 
         // 测试无效协议
-        XPackBuff error_result = co_await xrpc_pcall_blp4(g_client_channel, 999, 1, 2);
+        XPackBuff error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
         if (!error_result.success()) {
             std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
         }

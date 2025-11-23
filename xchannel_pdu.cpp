@@ -1,7 +1,17 @@
+ï»¿#include <string.h>
 #include "xchannel.h"
-#include <string.h>
+#include "xchannel.inl"
 
-// ==================== BLP2Ð­ÒéÊµÏÖ ====================
+//*********************************
+// åŒ…æ“ä½œå¯¹è±¡å®šä¹‰ä¸Žå®žçŽ°
+// åŒ…æ ¼å¼ï¼š
+//  1. BLP2åè®®ï¼š2å­—èŠ‚é•¿åº¦å­—æ®µï¼ˆå¤§ç«¯åºï¼‰- BLP4åè®®ï¼š4å­—èŠ‚é•¿åº¦å­—æ®µï¼ˆå¤§ç«¯åºï¼‰
+//  2. IS_RPC:1å­—èŠ‚æ˜¯å¦RPC 0:éžRPC 1:RPC-REQ 2:RPC-REP
+//  3. CO_ID: rpc-4å­—èŠ‚åç¨‹ID nrpc-0å­—èŠ‚
+//  4. PK_ID: rpc-4å­—èŠ‚åŒ…ID nrpc-0å­—èŠ‚
+//  5. PTï¼š4å­—èŠ‚åè®®å·ï¼Œ resp-0å­—èŠ‚
+//  6. argsï¼šæ ¹æ®è°ƒç”¨ä¼ å‚æ•°é‡å®šä¹‰ 
+// ==================== BLP2åè®®å®žçŽ° ====================
 
 static xChannelErrCode blp2_check_complete(xChannel* channel) {
     if (!channel) {
@@ -9,10 +19,10 @@ static xChannelErrCode blp2_check_complete(xChannel* channel) {
     }
     int len = (int)(channel->rpos - channel->rbuf);
     if (len < 2) {
-        return PACKET_INVALID;  // ³¤¶È×Ö¶ÎÖµÌ«Ð¡
+        return PACKET_INVALID;  // é•¿åº¦å­—æ®µå€¼å¤ªå°
     }
 
-    // ¶ÁÈ¡2×Ö½Ú³¤¶È×Ö¶Î(´ó¶ËÐò)
+    // è¯»å–2å­—èŠ‚é•¿åº¦å­—æ®µ(å¤§ç«¯åº)
     uint16_t pkg_len = (channel->rbuf[0] << 8) | channel->rbuf[1];
     if (len < pkg_len + 2) {
         return PACKET_INCOMPLETE;
@@ -25,12 +35,12 @@ static int blp2_write_header(xChannel* channel, size_t data_len) {
     if (!channel || !channel->wbuf) {
         return PACKET_FD_INVALD;
     }
-    // ¼ì²é»º³åÇø¿Õ¼ä
+    // æ£€æŸ¥ç¼“å†²åŒºç©ºé—´
     if (channel->wlen - (channel->wpos - channel->wbuf) < data_len + 2) {
         return PACKET_BUF_LEAK;
     }
 
-    // ÒÔ´ó¶ËÐòÐ´Èë
+    // ä»¥å¤§ç«¯åºå†™å…¥
     uint8_t* b = (uint8_t*)channel->wpos;
     b[0] = (data_len >> 8) & 0xFF;
     b[1] = data_len & 0xFF;
@@ -45,21 +55,21 @@ static int blp2_read_header(xChannel* channel, size_t* data_len) {
 
     int len = (int)(channel->rpos - channel->rbuf);
     if (len < 2) {
-        return PACKET_INCOMPLETE;  // ³¤¶È×Ö¶ÎÖµÌ«Ð¡
+        return PACKET_INCOMPLETE;  // é•¿åº¦å­—æ®µå€¼å¤ªå°
     }
 
-    // ¶ÁÈ¡2×Ö½Ú³¤¶È×Ö¶Î(´ó¶ËÐò)
+    // è¯»å–2å­—èŠ‚é•¿åº¦å­—æ®µ(å¤§ç«¯åº)
     uint8_t* b = (uint8_t*)channel->rbuf;
     uint16_t pkg_len = (b[0] << 8) | b[1];
     if (len < pkg_len + 2) {
         return PACKET_INCOMPLETE;
     }
-    // Êý¾Ý³¤¶È = ×Ü³¤¶È - °üÍ·³¤¶È
+    // æ•°æ®é•¿åº¦ = æ€»é•¿åº¦ - åŒ…å¤´é•¿åº¦
     *data_len = pkg_len;
     return 2;
 }
 
-// ==================== BLP4Ð­ÒéÊµÏÖ ====================
+// ==================== BLP4åè®®å®žçŽ° ====================
 
 static xChannelErrCode blp4_check_complete(xChannel* channel) {
     if (!channel) {
@@ -68,10 +78,10 @@ static xChannelErrCode blp4_check_complete(xChannel* channel) {
 
     int len = (int)(channel->rpos - channel->rbuf);
     if (len < 4) {
-        return PACKET_INCOMPLETE;  // Êý¾Ý²»¹»¶ÁÈ¡°üÍ·
+        return PACKET_INCOMPLETE;  // æ•°æ®ä¸å¤Ÿè¯»å–åŒ…å¤´
     }
 
-    // ¶ÁÈ¡4×Ö½Ú³¤¶È×Ö¶Î(´ó¶ËÐò)
+    // è¯»å–4å­—èŠ‚é•¿åº¦å­—æ®µ(å¤§ç«¯åº)
     uint8_t* b = (uint8_t*)channel->rbuf;
     uint32_t pkg_len = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
 
@@ -87,12 +97,12 @@ static int blp4_write_header(xChannel* channel, size_t data_len) {
         return PACKET_FD_INVALD;
     }
 
-    // ¼ì²é»º³åÇø¿Õ¼ä
+    // æ£€æŸ¥ç¼“å†²åŒºç©ºé—´
     if (channel->wlen - (channel->wpos - channel->wbuf) < data_len + 4) {
         return PACKET_BUF_LEAK;
     }
 
-    // ÒÔ´ó¶ËÐòÐ´Èë
+    // ä»¥å¤§ç«¯åºå†™å…¥
     uint8_t* b = (uint8_t*)channel->wpos;
     b[0] = (data_len >> 24) & 0xFF;
     b[1] = (data_len >> 16) & 0xFF;
@@ -109,10 +119,10 @@ static int blp4_read_header(xChannel* channel, size_t* data_len) {
 
     int len = (int)(channel->rpos - channel->rbuf);
     if (len < 4) {
-        return PACKET_INCOMPLETE;  // Êý¾Ý²»¹»¶ÁÈ¡°üÍ·
+        return PACKET_INCOMPLETE;  // æ•°æ®ä¸å¤Ÿè¯»å–åŒ…å¤´
     }
 
-    // ¶ÁÈ¡4×Ö½Ú³¤¶È×Ö¶Î(´ó¶ËÐò)
+    // è¯»å–4å­—èŠ‚é•¿åº¦å­—æ®µ(å¤§ç«¯åº)
     uint8_t* b = (uint8_t*)channel->rbuf;
     uint32_t pkg_len = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
 
@@ -120,12 +130,12 @@ static int blp4_read_header(xChannel* channel, size_t* data_len) {
         return PACKET_INCOMPLETE;
     }
 
-    // Êý¾Ý³¤¶È = ×Ü³¤¶È - °üÍ·³¤¶È
+    // æ•°æ®é•¿åº¦ = æ€»é•¿åº¦ - åŒ…å¤´é•¿åº¦
     *data_len = pkg_len;
     return 4;
 }
 
-// ==================== È«¾Ö²Ù×÷¶ÔÏóÊý×é ====================
+// ==================== å…¨å±€æ“ä½œå¯¹è±¡æ•°ç»„ ====================
 
 const PacketOps _g_pack_ops[aeproto_max] = {
     // aeproto_blp2 = 0
@@ -145,3 +155,10 @@ const PacketOps _g_pack_ops[aeproto_max] = {
         "BLP4"                  // proto_name
     }
 };
+
+const PacketOps* _xchannel_get_ops(xChannel* channel) {
+    if (!channel || channel->pproto >= aeproto_max) {
+        return NULL;
+    }
+    return &_g_pack_ops[channel->pproto];
+}

@@ -17,6 +17,7 @@
 #endif
 
 #include "xchannel.h"
+#include "xchannel.inl"
 #include "anet.h"
 #include "xrpc.h"
 
