@@ -7,6 +7,9 @@
 #include "ae.h"
 #include "anet.h"
 #include "xchannel.h"
+#include "xlog.h"
+#include <signal.h>
+#define XLOG_TAG "svr"
 
 typedef int (*ProtocolHandler)(int param1, const char* param2, int param2_len, char* response, int* response_len);
 
@@ -36,13 +39,13 @@ ProtocolHandler find_protocol_handler(uint16_t protocol) {
 }
 
 int handle_protocol_1(int param1, const char* param2, int param2_len, char* response, int* response_len) {
-    printf("处理协议1: param1=%d, param2=%.*s\n", param1, param2_len, param2);
+    xlog_info("处理协议1: param1=%d, param2=%.*s\n", param1, param2_len, param2);
     *response_len = sprintf(response, "协议1处理结果: %d", param1 * 2);
     return 0; // 成功
 }
 
 int handle_protocol_2(int param1, const char* param2, int param2_len, char* response, int* response_len) {
-    printf("处理协议2: param1=%d, param2长度=%d\n", param1, param2_len);
+    xlog_info("处理协议2: param1=%d, param2长度=%d\n", param1, param2_len);
     *response_len = sprintf(response, "协议2处理结果: %d字节数据", param2_len);
     return 0; // 成功
 }
@@ -66,13 +69,13 @@ int on_packet(struct xChannel* s, char* buf, int len) {
     uint8_t is_request = *(const uint8_t*)(buf + 7);
     uint32_t pkg_id = *(const uint32_t*)(buf + 8);
 
-    if (pkg_len > (int)len) {
-        printf("包不全等待继续接受: %d vs %d\n", pkg_len, len);
+    if (pkg_len > (uint32_t)len) {
+        xlog_warn("包不全等待继续接受: %d vs %d\n", pkg_len, len);
         return 0;
     }
 
     if (is_request != 1) {
-        printf("不是请求包\n");
+        xlog_err("不是请求包\n");
         return pkg_len + sizeof(int);
     }
 
@@ -98,13 +101,13 @@ int on_packet(struct xChannel* s, char* buf, int len) {
     if (handler) {
         ret = handler(param1, param2, param2_len, handler_response, &handler_response_len);
     } else {
-        printf("未找到协议%d的处理函数\n", protocol);
+        xlog_err("未找到协议%d的处理函数\n", protocol);
         return pkg_len +sizeof(int);
     }
 
     // 构建响应包
     if (need_return) {
-        printf("处理完成，长度:% d, 协议 : % d, 包ID : % d\n", pkg_len, protocol, pkg_id);
+        xlog_info("处理完成，长度:% d, 协议 : % d, 包ID : % d\n", pkg_len, protocol, pkg_id);
     
         // 响应包头部长度：4+2+1+1+4=12字节
         char response[1024];
@@ -124,11 +127,53 @@ int on_packet(struct xChannel* s, char* buf, int len) {
 }
 
 int on_close(struct xChannel* s, char* data, int len) {
-    printf("连接关闭\n");
+    xlog_info("连接关闭\n");
     return 0;
 }
 
+// 信号处理函数
+void signal_handler(int sig) {
+    xlog_warn("收到信号 %d，正在关闭应用...", sig);
+    xlog_safe_close();
+    exit(0);
+}
+
+void my_log_hook(int level, const char* tag, const char* message, size_t len, void* userdata) {
+    printf("[HOOK] Level:%d Tag:%s Message:%.*s", level, tag, (int)len, message);
+}
+
+// 配置日志系统
+void setup_logging(void) {
+    // 设置日志级别 - 在生产环境中可以设置为 XLOG_WARN 或 XLOG_ERROR
+    xlog_set_level(XLOG_DEBUG);
+
+    // 启用文件日志
+    xlog_set_file_path("./logs");  // 设置日志文件路径
+    xlog_set_file_enable(1);               // 启用文件日志
+
+    // 启用控制台颜色（如果支持）
+    xlog_set_show_color(1);
+    xlog_set_show_timestamp(1);
+
+    // 4. 启用线程名显示
+    xlog_set_show_thread_name(1);
+    // 5. 设置主线程名称
+    xlog_set_thread_name("MainThread");
+
+    // 6. 注册日志钩子
+    // xlog_set_hook(my_log_hook, NULL);
+
+    xlog_warn("日志系统初始化完成\n");
+}
+
 int main(int argc, char* argv[]) {
+    // 设置信号处理
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    // 初始化日志系统
+    setup_logging();
+
     int port = 6379; // 默认端口
     if (argc > 1) {
         port = atoi(argv[1]);
@@ -138,17 +183,17 @@ int main(int argc, char* argv[]) {
 
     aeEventLoop* el = aeCreateEventLoop();
     if (!el) {
-        printf("创建事件循环失败\n");
+        xlog_err("创建事件循环失败");
         return 1;
     }
 
     int res = xchannel_listen(port, NULL, on_packet, on_close, NULL);
     if (res == ANET_ERR) {
-        printf("创建服务器失败: %d\n", res);
+        xlog_err("创建服务器失败: %d", res);
         return 1;
     }
-
-    printf("服务器启动，监听端口 %d\n", port);
+    xlog_info("服务器启动，监听端口 %d", port);
+    
     aeMain(el);
     while (1) {
         aeFramePoll(el);

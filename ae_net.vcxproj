@@ -126,6 +126,8 @@
   <ItemGroup>
     <ClCompile Include="ae.c" />
     <ClCompile Include="xchannel.cpp" />
+    <ClCompile Include="ae_iouring.c" />
+    <ClCompile Include="xchannel.c" />
     <ClCompile Include="ae_iocp.c" />
     <ClCompile Include="ae_ws2.c" />
     <ClCompile Include="anet.c">
@@ -136,6 +138,7 @@
     <ClCompile Include="response.c" />
     <ClCompile Include="xchannel_pdu.cpp" />
     <ClCompile Include="xrpc.cpp" />
+    <ClCompile Include="xlog.c" />
     <ClCompile Include="zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
@@ -146,6 +149,7 @@
     <ClInclude Include="fmacros.h" />
     <ClInclude Include="request.h" />
     <ClInclude Include="response.h" />
+    <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xpack.h" />
     <ClInclude Include="xrpc.h" />

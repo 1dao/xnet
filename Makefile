@@ -17,7 +17,7 @@ BUILD_DIR = build
 OBJS_DIR = $(BUILD_DIR)/objs
 
 # 源文件
-SRCS = ae.c anet.c request.c response.c zmalloc.c xchannel.c
+SRCS = ae.c anet.c request.c response.c zmalloc.c xchannel.c xlog.c
 SVR_SRCS = demo/xnet_svr_iocp.c
 CLI_SRCS = coroutine.cpp demo/xnet_client_iocp.cpp # 改为 .cpp  
 
