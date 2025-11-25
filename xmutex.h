@@ -1,4 +1,4 @@
-#ifndef XMUTEX_H
+ï»¿#ifndef XMUTEX_H
 #define XMUTEX_H
 
 #include <stdint.h>
@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
     // ============================================================================
-    // Æ½Ì¨¼ì²â
+    // å¹³å°æ£€æµ‹
     // ============================================================================
 
 #if defined(_WIN32)
@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 // ============================================================================
-// Ô­×Ó²Ù×÷·â×° - Í³Ò»½Ó¿Ú
+// åŸå­æ“ä½œå°è£… - ç»Ÿä¸€æ¥å£
 // ============================================================================
 
 #if defined(XMUTEX_WINDOWS)
@@ -55,13 +55,13 @@ extern "C" {
         return *ptr;
     }
 
-    // CPU ÔİÍ£Ö¸Áî
+    // CPU æš‚åœæŒ‡ä»¤
     static inline void cpu_pause(void) {
         YieldProcessor();
     }
 
 #elif defined(__GNUC__) || defined(__clang__)
-    // GCC/Clang Ô­×Ó²Ù×÷
+    // GCC/Clang åŸå­æ“ä½œ
     static inline int atomic_compare_exchange(volatile int* ptr, int* expected, int desired) {
         return __atomic_compare_exchange_n(ptr, expected, desired, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
     }
@@ -78,7 +78,7 @@ extern "C" {
         return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
     }
 
-    // CPU ÔİÍ£Ö¸Áî
+    // CPU æš‚åœæŒ‡ä»¤
     static inline void cpu_pause(void) {
 #if defined(__x86_64__) || defined(__i386__)
         __asm__ __volatile__("pause" ::: "memory");
@@ -90,7 +90,7 @@ extern "C" {
     }
 
 #else
-    // Í¨ÓÃµÄÔ­×Ó²Ù×÷ÊµÏÖ
+    // é€šç”¨çš„åŸå­æ“ä½œå®ç°
 #warning "Using generic atomic operations, performance may be suboptimal"
 
     static inline int atomic_compare_exchange(volatile int* ptr, int* expected, int desired) {
@@ -125,7 +125,7 @@ extern "C" {
 #endif
 
     // ============================================================================
-    // Ê±¼ä»ñÈ¡º¯Êı£¨¶ÀÁ¢ÓÚÍ³¼ÆËø£©
+    // æ—¶é—´è·å–å‡½æ•°ï¼ˆç‹¬ç«‹äºç»Ÿè®¡é”ï¼‰
     // ============================================================================
 
     static inline unsigned long xnet_mutex_current_time_us(void) {
@@ -146,7 +146,7 @@ extern "C" {
     }
 
     // ============================================================================
-    // »ù´¡»¥³âËøÊµÏÖ
+    // åŸºç¡€äº’æ–¥é”å®ç°
     // ============================================================================
 
     typedef struct {
@@ -168,8 +168,8 @@ extern "C" {
     }
 
     /**
-     * @brief ³¢ÊÔËø¶¨»¥³âËø£¨·Ç×èÈû£©
-     * @return 0-³É¹¦£¬·Ç0-Ê§°Ü
+     * @brief å°è¯•é”å®šäº’æ–¥é”ï¼ˆéé˜»å¡ï¼‰
+     * @return 0-æˆåŠŸï¼Œé0-å¤±è´¥
      */
     static inline int xnet_mutex_trylock(xnet_mutex_t* mutex) {
         int expected = 0;
@@ -178,51 +178,51 @@ extern "C" {
     }
 
     /**
-     * @brief ½âËø»¥³âËø
+     * @brief è§£é”äº’æ–¥é”
      */
     static inline void xnet_mutex_unlock(xnet_mutex_t* mutex) {
         atomic_store(&mutex->locked, 0);
     }
 
     /**
-     * @brief Ïú»Ù»¥³âËø
+     * @brief é”€æ¯äº’æ–¥é”
      */
     static inline void xnet_mutex_destroy(xnet_mutex_t* mutex) {
         atomic_store(&mutex->locked, 0);
     }
 
     /**
-     * @brief ¼ì²é»¥³âËøÊÇ·ñ±»Ëø¶¨
-     * @return 1-ÒÑËø¶¨£¬0-Î´Ëø¶¨
+     * @brief æ£€æŸ¥äº’æ–¥é”æ˜¯å¦è¢«é”å®š
+     * @return 1-å·²é”å®šï¼Œ0-æœªé”å®š
      */
     static inline int xnet_mutex_is_locked(xnet_mutex_t* mutex) {
         return atomic_load(&mutex->locked) != 0;
     }
 
     // ============================================================================
-    // ×ÔÊÊÓ¦»¥³âËøÊµÏÖ
+    // è‡ªé€‚åº”äº’æ–¥é”å®ç°
     // ============================================================================
 
-    // ×ÔÊÊÓ¦»¥³âËø£ºÔÚÔ­×ÓËøºÍÏµÍ³ËøÖ®¼ä×Ô¶¯ÇĞ»»
+    // è‡ªé€‚åº”äº’æ–¥é”ï¼šåœ¨åŸå­é”å’Œç³»ç»Ÿé”ä¹‹é—´è‡ªåŠ¨åˆ‡æ¢
     typedef struct {
-        // Ô­×ÓËø²¿·Ö
+        // åŸå­é”éƒ¨åˆ†
         volatile int atomic_lock;
 
-        // ÏµÍ³Ëø²¿·Ö
+        // ç³»ç»Ÿé”éƒ¨åˆ†
 #ifdef _WIN32
         CRITICAL_SECTION sys_lock;
 #else
         pthread_mutex_t sys_lock;
 #endif
 
-        // Í³¼ÆĞÅÏ¢
+        // ç»Ÿè®¡ä¿¡æ¯
         unsigned int spin_count;
         unsigned int total_locks;
-        int use_system_lock;  // ÊÇ·ñÊ¹ÓÃÏµÍ³Ëø
+        int use_system_lock;  // æ˜¯å¦ä½¿ç”¨ç³»ç»Ÿé”
     } xnet_adp_mutex_t;
 
     /**
-     * @brief ³õÊ¼»¯×ÔÊÊÓ¦»¥³âËø
+     * @brief åˆå§‹åŒ–è‡ªé€‚åº”äº’æ–¥é”
      */
     static inline void xnet_mutex_adp_init(xnet_adp_mutex_t* mutex) {
         mutex->atomic_lock = 0;
@@ -238,25 +238,25 @@ extern "C" {
     }
 
     /**
-     * @brief »ùÓÚÍ³¼ÆµÄ×ÔÊÊÓ¦¾ö²ß
+     * @brief åŸºäºç»Ÿè®¡çš„è‡ªé€‚åº”å†³ç­–
      */
     static inline int xnet_mutex_should_use_system_lock(xnet_adp_mutex_t* mutex) {
-        // Èç¹û×ÜËø´ÎÊıÌ«ÉÙ£¬¼ÌĞøÊ¹ÓÃÔ­×ÓËø
+        // å¦‚æœæ€»é”æ¬¡æ•°å¤ªå°‘ï¼Œç»§ç»­ä½¿ç”¨åŸå­é”
         if (mutex->total_locks < 100) return 0;
 
-        // Èç¹û×ÔĞı´ÎÊı¹ı¶à£¬ÇĞ»»µ½ÏµÍ³Ëø
+        // å¦‚æœè‡ªæ—‹æ¬¡æ•°è¿‡å¤šï¼Œåˆ‡æ¢åˆ°ç³»ç»Ÿé”
         float spin_ratio = (float)mutex->spin_count / mutex->total_locks;
-        return (spin_ratio > 0.1f); // ³¬¹ı10%µÄ×ÔĞıÂÊ¾ÍÊ¹ÓÃÏµÍ³Ëø
+        return (spin_ratio > 0.1f); // è¶…è¿‡10%çš„è‡ªæ—‹ç‡å°±ä½¿ç”¨ç³»ç»Ÿé”
     }
 
     /**
-     * @brief Ëø¶¨×ÔÊÊÓ¦»¥³âËø
+     * @brief é”å®šè‡ªé€‚åº”äº’æ–¥é”
      */
     static inline void xnet_mutex_adp_lock(xnet_adp_mutex_t* mutex) {
         mutex->total_locks++;
 
         if (mutex->use_system_lock) {
-            // Ê¹ÓÃÏµÍ³Ëø
+            // ä½¿ç”¨ç³»ç»Ÿé”
 #ifdef _WIN32
             EnterCriticalSection(&mutex->sys_lock);
 #else
@@ -265,27 +265,27 @@ extern "C" {
             return;
         }
 
-        // ³¢ÊÔÔ­×ÓËø
-        int max_spins = 1000; // ×î´ó×ÔĞı´ÎÊı
+        // å°è¯•åŸå­é”
+        int max_spins = 1000; // æœ€å¤§è‡ªæ—‹æ¬¡æ•°
         for (int i = 0; i < max_spins; i++) {
             int expected = 0;
             int desired = 1;
 
             if (atomic_compare_exchange(&mutex->atomic_lock, &expected, desired)) {
-                return; // ³É¹¦»ñÈ¡Ëø
+                return; // æˆåŠŸè·å–é”
             }
 
             mutex->spin_count++;
             cpu_pause();
 
-            // ¼ì²éÊÇ·ñÓ¦¸ÃÇĞ»»µ½ÏµÍ³Ëø
+            // æ£€æŸ¥æ˜¯å¦åº”è¯¥åˆ‡æ¢åˆ°ç³»ç»Ÿé”
             if (xnet_mutex_should_use_system_lock(mutex)) {
                 mutex->use_system_lock = 1;
                 break;
             }
         }
 
-        // ×ÔĞıÊ§°Ü£¬Ê¹ÓÃÏµÍ³Ëø
+        // è‡ªæ—‹å¤±è´¥ï¼Œä½¿ç”¨ç³»ç»Ÿé”
 #ifdef _WIN32
         EnterCriticalSection(&mutex->sys_lock);
 #else
@@ -294,7 +294,7 @@ extern "C" {
     }
 
     /**
-     * @brief ³¢ÊÔËø¶¨×ÔÊÊÓ¦»¥³âËø
+     * @brief å°è¯•é”å®šè‡ªé€‚åº”äº’æ–¥é”
      */
     static inline int xnet_mutex_adp_trylock(xnet_adp_mutex_t* mutex) {
         mutex->total_locks++;
@@ -307,7 +307,7 @@ extern "C" {
 #endif
         }
 
-        // ³¢ÊÔÔ­×ÓËø
+        // å°è¯•åŸå­é”
         int expected = 0;
         int desired = 1;
         if (atomic_compare_exchange(&mutex->atomic_lock, &expected, desired)) {
@@ -319,7 +319,7 @@ extern "C" {
     }
 
     /**
-     * @brief ½âËø×ÔÊÊÓ¦»¥³âËø
+     * @brief è§£é”è‡ªé€‚åº”äº’æ–¥é”
      */
     static inline void xnet_mutex_adp_unlock(xnet_adp_mutex_t* mutex) {
         if (mutex->use_system_lock) {
@@ -335,7 +335,7 @@ extern "C" {
     }
 
     /**
-     * @brief Ïú»Ù×ÔÊÊÓ¦»¥³âËø
+     * @brief é”€æ¯è‡ªé€‚åº”äº’æ–¥é”
      */
     static inline void xnet_mutex_adp_destroy(xnet_adp_mutex_t* mutex) {
 #ifdef _WIN32
@@ -346,7 +346,7 @@ extern "C" {
     }
 
     /**
-     * @brief »ñÈ¡×ÔÊÊÓ¦ËøÍ³¼ÆĞÅÏ¢
+     * @brief è·å–è‡ªé€‚åº”é”ç»Ÿè®¡ä¿¡æ¯
      */
     static inline void xnet_mutex_adp_stats(xnet_adp_mutex_t* mutex,
         unsigned int* total_locks,
@@ -358,7 +358,7 @@ extern "C" {
     }
 
     // ============================================================================
-    // Í³¼Æ»¥³âËøÊµÏÖ£¨ÓÃÓÚĞÔÄÜ¼à¿Ø£©- ¼ò»¯°æ
+    // ç»Ÿè®¡äº’æ–¥é”å®ç°ï¼ˆç”¨äºæ€§èƒ½ç›‘æ§ï¼‰- ç®€åŒ–ç‰ˆ
     // ============================================================================
 
     typedef struct {
@@ -368,7 +368,7 @@ extern "C" {
     } xnet_stats_mutex_t;
 
     /**
-     * @brief ³õÊ¼»¯Í³¼Æ»¥³âËø
+     * @brief åˆå§‹åŒ–ç»Ÿè®¡äº’æ–¥é”
      */
     static inline void xnet_mutex_stats_init(xnet_stats_mutex_t* smutex) {
         xnet_mutex_init(&smutex->mutex);
@@ -377,39 +377,39 @@ extern "C" {
     }
 
     /**
-     * @brief Ëø¶¨Í³¼Æ»¥³âËø
+     * @brief é”å®šç»Ÿè®¡äº’æ–¥é”
      */
     static inline void xnet_mutex_stats_lock(xnet_stats_mutex_t* smutex) {
         smutex->lock_count++;
 
-        // Ê×ÏÈ³¢ÊÔ¿ìËÙ»ñÈ¡
+        // é¦–å…ˆå°è¯•å¿«é€Ÿè·å–
         if (xnet_mutex_trylock(&smutex->mutex) == 0) {
             return;
         }
 
-        // ¿ìËÙ»ñÈ¡Ê§°Ü£¬Í³¼Æ¾ºÕù
+        // å¿«é€Ÿè·å–å¤±è´¥ï¼Œç»Ÿè®¡ç«äº‰
         smutex->contention_count++;
 
-        // Ê¹ÓÃÕı³£µÄËø
+        // ä½¿ç”¨æ­£å¸¸çš„é”
         xnet_mutex_lock(&smutex->mutex);
     }
 
     /**
-     * @brief ½âËøÍ³¼Æ»¥³âËø
+     * @brief è§£é”ç»Ÿè®¡äº’æ–¥é”
      */
     static inline void xnet_mutex_stats_unlock(xnet_stats_mutex_t* smutex) {
         xnet_mutex_unlock(&smutex->mutex);
     }
 
     /**
-     * @brief Ïú»ÙÍ³¼Æ»¥³âËø
+     * @brief é”€æ¯ç»Ÿè®¡äº’æ–¥é”
      */
     static inline void xnet_mutex_stats_destroy(xnet_stats_mutex_t* smutex) {
         xnet_mutex_destroy(&smutex->mutex);
     }
 
     /**
-     * @brief »ñÈ¡Í³¼ÆĞÅÏ¢
+     * @brief è·å–ç»Ÿè®¡ä¿¡æ¯
      */
     static inline void xnet_mutex_get_stats(xnet_stats_mutex_t* smutex,
         unsigned long* total_locks,
@@ -425,7 +425,7 @@ extern "C" {
     }
 
     /**
-     * @brief ÖØÖÃÍ³¼ÆĞÅÏ¢
+     * @brief é‡ç½®ç»Ÿè®¡ä¿¡æ¯
      */
     static inline void xnet_mutex_reset_stats(xnet_stats_mutex_t* smutex) {
         smutex->lock_count = 0;
@@ -433,10 +433,10 @@ extern "C" {
     }
 
     // ============================================================================
-    // Ïòºó¼æÈİµÄºê¶¨Òå
+    // å‘åå…¼å®¹çš„å®å®šä¹‰
     // ============================================================================
 
-    // ÎªÁË¼æÈİ¾ÉµÄxlog´úÂë
+    // ä¸ºäº†å…¼å®¹æ—§çš„xlogä»£ç 
 #define xMutex xnet_mutex_t
 #define xnet_mutex_uninit xnet_mutex_destroy
 

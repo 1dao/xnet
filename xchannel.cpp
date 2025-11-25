@@ -21,6 +21,8 @@
 #include "anet.h"
 #include "xrpc.h"
 
+#include "xhandle.h"
+
 #define CHANNEL_BUFF_MAX (2*1024*1024)
 
 typedef struct {
@@ -131,16 +133,15 @@ static int on_data(channel_context_t* ctx) {
     xChannel* s = ctx->channel;
 	aeEventLoop* el = aeGetCurEventLoop();
 	size_t pkg_len = 0, hdr_len = 0;
+    bool is_rpc = false;
     for (int i = 0; i < 10; i++) {
         hdr_len = _xchannel_read_header(s, &pkg_len);
         if (hdr_len < 0) return hdr_len == PACKET_INCOMPLETE ? AE_OK: AE_ERR;
-		if (el->nrpc > 0 && hdr_len == 4 && xrpc_resp_blp4(s)) // TODO: 支持更多协议
-            continue;
         if (pkg_len <= 0) return AE_ERR;
 
         int processed = ctx->fpack(s, s->rbuf+ hdr_len, (int)(pkg_len));
         if (processed > 0) {
-            processed = hdr_len + pkg_len;
+            processed = (int)(hdr_len + pkg_len);
             int remaining = (int)(s->rpos - s->rbuf) - processed;
             if (remaining > 0) {
                 memmove(s->rbuf, s->rbuf + processed, remaining);
@@ -419,14 +420,11 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
         printf("No event loop available\n");
         return AE_ERR;
     }
-    if (!fpack) {
-        printf("fpack Invalid callback\n");
-        return AE_ERR;
-    }
     if (!fclose) {
         printf("fclose Invalid callback\n");
         return AE_ERR;
     }
+    fpack = fpack ? fpack : xhandle_on_pack;
 
     char err[ANET_ERR_LEN];
     xSocket fd = anetTcpServer(err, port, bindaddr);
@@ -464,14 +462,11 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
         printf("No event loop available\n");
         return NULL;
     }
-    if (!fpack) {
-        printf("fpack Invalid callback\n");
-        return NULL;
-    }
     if (!fclose) {
         printf("fclose Invalid callback\n");
         return NULL;
     }
+    fpack = fpack? fpack : xhandle_on_pack;
 
     char err[ANET_ERR_LEN];
     xSocket fd = anetTcpConnect(err, addr, port);
@@ -512,22 +507,15 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
     return client_ctx->channel;
 }
 
-int xchannel_send(xChannel* s, const char* buf, int len) {
-    if (!s || !s->wbuf || len<=0 ) return 0;
-    if (_xchannel_write_header(s, len) < 0) {
-        printf("Send buffer full, fd: %d\n", (int)s->fd);
-        return 0;
-    }
-    memcpy(s->wpos, buf, len);
-    s->wpos += len;
-
+static inline int xchannel_post(xChannel* s, int len) {
 #ifndef AE_USING_IOCP
     int slen = s->wpos - s->wbuf;
     int trans = anetWrite(s->fd, s->wbuf, slen);
     if (trans <= 0) {
         if (trans == 0) {
             printf("Connection closed during write, fd: %d\n", s->fd);
-        } else {
+        }
+        else {
             printf("Write error on fd: %d\n", s->fd);
         }
         xchannel_close(s);
@@ -536,7 +524,8 @@ int xchannel_send(xChannel* s, const char* buf, int len) {
 
     if (slen == trans) {
         s->wpos = s->wbuf;
-    } else {
+    }
+    else {
         memcpy(s->wbuf, buf + trans, slen - trans);
         s->wpos = slen - trans;
     }
@@ -555,6 +544,18 @@ int xchannel_send(xChannel* s, const char* buf, int len) {
     return len;
 }
 
+int xchannel_send(xChannel* s, const char* buf, int len) {
+    if (!s || !s->wbuf || len<=0 ) return 0;
+    if (_xchannel_write_header(s, len) < 0) {
+        printf("Send buffer full, fd: %d\n", (int)s->fd);
+        return 0;
+    }
+    memcpy(s->wpos, buf, len);
+    s->wpos += len;
+
+    return xchannel_post(s, len);
+}
+
 int xchannel_rawsend(xChannel* s, const char* buf, int len) {
     if (!s || !s->wbuf) return 0;
 
@@ -563,54 +564,9 @@ int xchannel_rawsend(xChannel* s, const char* buf, int len) {
         printf("Send buffer full, fd: %d\n", (int)s->fd);
         return 0;
     }
-
-#ifndef AE_USING_IOCP
-    int slen = len;
-    if (s->wpos != s->wbuf) {
-        memcpy(s->wpos, buf, len);
-        s->wpos += len;
-        buf = s->wbuf;
-        slen = s->wpos - s->wbuf;
-    }
-    int trans = anetWrite(s->fd, buf, slen);
-    if (trans <= 0) {
-        if (trans == 0) {
-            printf("Connection closed during write, fd: %d\n", s->fd);
-        } else {
-            printf("Write error on fd: %d\n", s->fd);
-        }
-        xchannel_close(s);
-        return AE_ERR;
-    }
-
-    if (slen == trans) {
-        s->wpos = s->wbuf;
-    } else if (buf == s->wbuf) {
-        memmove(s->wbuf, s->wbuf + trans, slen - trans);
-        s->wpos = s->wbuf + slen - trans;
-    } else {
-        memcpy(s->wbuf, buf + trans, slen - trans);
-        s->wpos = slen - trans;
-    }
-#else
-    aeFileEvent* ev = s->ev;
-    aeEventLoop* el = aeGetCurEventLoop();
-    channel_context_t* ctx = (channel_context_t*)ev->clientData;
     memcpy(s->wpos, buf, len);
     s->wpos += len;
-    if (el && (s->wpos > s->wbuf) && (!(ev->mask & AE_WRITABLE))) {
-        ev->mask |= AE_WRITABLE;
-        if (aePostIocpWrite(s->fd, &ctx->wop) == AE_ERR) {
-            xchannel_close(s);
-            return AE_ERR;
-        }
-    }
-#endif
-    return len;
-}
-
-int xchannel_rpc(struct xChannel* s, char* buf, int len) {
-    return xchannel_send(s, buf, len);
+    return xchannel_post(s, len);
 }
 
 int xchannel_close(struct xChannel* s) {

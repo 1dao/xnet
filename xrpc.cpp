@@ -3,6 +3,7 @@
 #include "xcoroutine.h"
 #include <iostream>
 #include "xpack.h"
+#include "xchannel.inl"
 
 bool xrpc_resp_blp4(xChannel* channel) {
     // 检查是否有足够数据读取包长度
@@ -57,4 +58,27 @@ bool xrpc_resp_blp4(xChannel* channel) {
         return true;
     }
     return false;
+}
+
+int xrpc_resp(xChannel* s, int co_id, uint32_t pkg_id, XPackBuff& res) {
+    uint16_t is_rpc = 2;
+    char* wpos = s->wpos;
+    int remain = (int)s->wlen - (int)(s->wpos - s->wbuf);
+    int hlen = (int)_xchannel_header_size(s);
+    int plen = (res.len + sizeof(pkg_id) + sizeof(co_id) + sizeof(is_rpc));
+    if (remain < hlen + plen) {
+        // 如果缓冲区空间不足，直接返回一个错误 awaiter
+        std::cout << "xrpc_resp: Buffer overflow" << std::endl;
+        return XRPC_SEND_FAILED;
+    }
+
+    // 写头
+    _xchannel_write_header(s, plen);
+    *(uint16_t*)s->wpos = (uint16_t)htons(is_rpc);
+    s->wpos += sizeof(is_rpc);
+    *(uint32_t*)s->wpos = (uint32_t)htonl(pkg_id);
+    s->wpos += sizeof(pkg_id);
+    *(int*)s->wpos = (int)htonl(co_id);
+    s->wpos += sizeof(co_id);
+    return xchannel_rawsend(s, res.get(), res.len);
 }

@@ -19,5 +19,6 @@ bool xrpc_resp_blp4(xChannel* channel);
 // RPC 调用函数声明
 template<typename... Args>
 xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, Args&&... args);
-// int xrpc_res_blp4(xChannel* channel, )
+int xrpc_resp(xChannel* s, int co_id, uint32_t pkg_id, XPackBuff& res);
+
 #endif // _XRPC_H

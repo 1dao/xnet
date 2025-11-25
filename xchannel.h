@@ -25,7 +25,7 @@ typedef struct xChannel {
     aeFileEvent* ev;
     xProto pproto;   // 通道协议类型
     void* userdata;         // 用户数据指针
-    
+
     uint8_t  is_rpc;
     uint32_t pk_id;
     uint32_t co_id;
@@ -39,7 +39,6 @@ xChannel*   xchannel_conn(char* addr, int port, xchannel_proc* on_pack, xchannel
 int         xchannel_listen(int port, char* bindaddr, xchannel_proc* proc, xchannel_proc* on_close, void* userdata, xProto proto = xProto::aeproto_blp4);
 int         xchannel_send(struct xChannel* s, const char* buf, int len);
 int         xchannel_rawsend(struct xChannel* s, const char* buf, int len);
-int         xchannel_rpc(struct xChannel* s, char* buf, int len);
 int         xchannel_close(struct xChannel* s);
 
 #endif

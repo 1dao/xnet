@@ -135,6 +135,7 @@
     <ClCompile Include="request.c" />
     <ClCompile Include="response.c" />
     <ClCompile Include="xchannel_pdu.cpp" />
+    <ClCompile Include="xhandle.cpp" />
     <ClCompile Include="xrpc.cpp" />
     <ClCompile Include="xlog.c" />
     <ClCompile Include="zmalloc.c" />
@@ -147,6 +148,7 @@
     <ClInclude Include="fmacros.h" />
     <ClInclude Include="request.h" />
     <ClInclude Include="response.h" />
+    <ClInclude Include="xhandle.h" />
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xpack.h" />

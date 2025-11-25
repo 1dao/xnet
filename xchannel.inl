@@ -1,7 +1,7 @@
-﻿#ifndef _XCHANNEL_h_
-#define _XCHANNEL_h_
-
-struct xChannel;
+﻿#ifndef _XCHANNEL_INL_
+#define _XCHANNEL_INL_
+#include "xchannel.h"
+// struct xChannel;
 
 // 包完整性检测结果
 typedef enum {
@@ -9,7 +9,7 @@ typedef enum {
     PACKET_INCOMPLETE = -1,  // 数据包不完整，需要继续接收
     PACKET_INVALID = -2,    // 数据包无效
     PACKET_BUF_LEAK = -3,   // 数据包无效
-    PACKET_FD_INVALD = -4,   // 
+    PACKET_FD_INVALD = -4,   //
 } xChannelErrCode;
 
 // 包操作函数指针类型
@@ -90,4 +90,4 @@ static inline const char* _xchannel_get_proto_name(xChannel* channel) {
     return ops ? ops->proto_name : "UNKNOWN";
 }
 
-#endif // !_XCHANNEL_h_
+#endif // !_XCHANNEL_INL_

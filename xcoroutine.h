@@ -1,9 +1,9 @@
-// coroutine_manager.h
+﻿// coroutine_manager.h
 #ifndef COROUTINE_MANAGER_H
 #define COROUTINE_MANAGER_H
 
 #ifdef _WIN32
-#include <winsock2.h> 
+#include <winsock2.h>
 #include <windows.h>
 #else
 #include <stddef.h>
@@ -24,8 +24,9 @@
 struct SimpleTask {
     struct promise_type {
         int coroutine_id;
+        void* resume_param;
 
-        promise_type() : coroutine_id(0) {}
+        promise_type() : coroutine_id(0), resume_param(nullptr) {}
 
         SimpleTask get_return_object() {
             return SimpleTask{ std::coroutine_handle<promise_type>::from_promise(*this) };

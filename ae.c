@@ -81,7 +81,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
-    eventLoop->maxfd = -1;
+    eventLoop->maxfd = 0; 
     eventLoop->beforesleep = NULL;
     eventLoop->efhead = 0;
     eventLoop->nrpc = 0;
@@ -144,7 +144,7 @@ void aeDeleteFileEvent(aeEventLoop* eventLoop, xSocket fd, aeFileEvent* fe, int 
     if (fe->mask == AE_NONE) {
         if (fd == eventLoop->maxfd) {
             /* Update the max fd */
-            int j;
+            int j = 0;
 
             for (j = (int)eventLoop->maxfd - 1; j >= 0; j--)
                 if (eventLoop->events[j].mask != AE_NONE) break;
@@ -338,7 +338,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
-    if (eventLoop->maxfd != -1 ||
+    if (eventLoop->maxfd != 0 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         aeTimeEvent *shortest = NULL;

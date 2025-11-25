@@ -19,10 +19,10 @@ XPackBuff string_to_xpack_buff(const std::string& str) {
     return XPackBuff(str.c_str(), static_cast<int>(str.length()));
 }
 
-// 客户端协议处理函数
-int client_packet_handler(xChannel* channel, char* buf, int len) {
-    return xrpc_resp_blp4(channel) ? len : -1;
-}
+//// 客户端协议处理函数
+//int client_packet_handler(xChannel* channel, char* buf, int len) {
+//    return xrpc_resp_blp4(channel) ? len : -1;
+//}
 
 // 客户端连接关闭处理函数
 int client_close_handler(xChannel* channel, char* buf, int len) {
@@ -43,7 +43,7 @@ void* comprehensive_test_coroutine(void* arg) {
         // 测试1: 基本运算
         std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
         for (int i = 1; i <= 3; i++) {
-            XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3);
+            XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3, XPackBuff("adfald1111"));
             if (result.success()) {
                 auto unpacked = xpack_unpack(result.get(), result.len);
                 if (unpacked.size() >= 2) {
@@ -98,7 +98,7 @@ SimpleTask comprehensive_test_run_task(void* arg) {
     // 测试1: 基本运算
     std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
     for (int i = 1; i <= 3; i++) {
-        XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3);
+        XPackBuff result = co_await xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
         if (result.success()) {
             auto unpacked = xpack_unpack(result.get(), result.len);
             if (unpacked.size() >= 2) {
@@ -155,7 +155,7 @@ void client_main() {
 
     std::cout << "Connecting to RPC server..." << std::endl;
 
-    xChannel* channel = xchannel_conn((char*)"127.0.0.1", 8888, client_packet_handler, client_close_handler, nullptr);
+    xChannel* channel = xchannel_conn((char*)"127.0.0.1", 8888, NULL, client_close_handler, nullptr);
     if (!channel) {
         std::cerr << "Failed to connect to server" << std::endl;
         return;
@@ -170,7 +170,8 @@ void client_main() {
     coroutine_run_task(comprehensive_test_run_task, channel);
 
     auto start_time = std::chrono::steady_clock::now();
-    while (coroutine_get_active_count()>0 || std::chrono::steady_clock::now() - start_time < std::chrono::seconds(10)) {
+    // while (coroutine_get_active_count() > 0 || std::chrono::steady_clock::now() - start_time < std::chrono::seconds(10000)) {
+    while (true) {
         aeFramePoll(el);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }

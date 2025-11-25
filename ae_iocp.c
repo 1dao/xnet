@@ -1,4 +1,4 @@
-﻿// ae_iocp.c 
+﻿// ae_iocp.c
 
 #include <string.h>
 #include <winsock2.h>
@@ -56,7 +56,7 @@ static void aeApiDelEvent(aeEventLoop* eventLoop, xSocket fd, int mask) {
 
 static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
     aeApiState* state = eventLoop->apidata;
-    DWORD timeout = tvp ? (tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : INFINITE; 
+    DWORD timeout = tvp ? (tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : INFINITE;
     int numevents = 0;
 
     if (state->eventCount == 0) {

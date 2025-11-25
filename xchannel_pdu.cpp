@@ -10,7 +10,7 @@
 //  3. CO_ID: rpc-4字节协程ID nrpc-0字节
 //  4. PK_ID: rpc-4字节包ID nrpc-0字节
 //  5. PT：4字节协议号， resp-0字节
-//  6. args：根据调用传参数量定义 
+//  6. args：根据调用传参数量定义
 // ==================== BLP2协议实现 ====================
 
 static xChannelErrCode blp2_check_complete(xChannel* channel) {
@@ -45,6 +45,7 @@ static int blp2_write_header(xChannel* channel, size_t data_len) {
     b[0] = (data_len >> 8) & 0xFF;
     b[1] = data_len & 0xFF;
     channel->wpos += 2;
+
     return 2;
 }
 

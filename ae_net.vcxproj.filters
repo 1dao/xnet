@@ -19,6 +19,7 @@
     <ClCompile Include="xrpc.cpp" />
     <ClCompile Include="xchannel_pdu.cpp" />
     <ClCompile Include="xlog.c" />
+    <ClCompile Include="xhandle.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
@@ -35,6 +36,7 @@
     <ClInclude Include="xrpc_awaiter.h" />
     <ClInclude Include="xrpc_template.h" />
     <ClInclude Include="xlog.h" />
+    <ClInclude Include="xhandle.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="xchannel.inl" />

@@ -214,6 +214,8 @@ public:
             coroutine->resume(param);
             return true;
         }
+        // 完成 RPC 调用
+        RpcResponseManager::instance().complete_rpc(pkg_id, std::move(result));
 
         // 如果已完成，从map中移除
         remove_coroutine(coroutine_id);
