@@ -35,20 +35,19 @@ struct CoroutineBase {
 
 // 具体协程的包装器
 struct CoroutineWrapper : CoroutineBase {
-    SimpleTask task;
+    xTask task;
     int coroutine_id;
     CoroutineFunc user_func;
     void* user_arg;
 
-    CoroutineWrapper(SimpleTask&& t, int id, CoroutineFunc func, void* arg)
+    CoroutineWrapper(xTask&& t, int id, CoroutineFunc func, void* arg)
         : task(std::move(t)), coroutine_id(id), user_func(func), user_arg(arg) {
         // 设置内部promise的协程ID
         task.get_promise().coroutine_id = id;
-        g_current_coroutine_id = coroutine_id;
     }
 
-    // 构造函数用于新的CoroutineTaskFunc类型（只接受SimpleTask和id）
-    CoroutineWrapper(SimpleTask&& t, int id)
+    // 构造函数用于新的CoroutineTaskFunc类型（只接受xTask和id）
+    CoroutineWrapper(xTask&& t, int id)
         : task(std::move(t)), coroutine_id(id), user_func(nullptr), user_arg(nullptr) {
         // 设置内部promise的协程ID
         task.get_promise().coroutine_id = id;
@@ -60,15 +59,9 @@ struct CoroutineWrapper : CoroutineBase {
 
     void resume(void* param) override {
         if (!is_done()) {
-            // 保存之前的协程ID（用于嵌套恢复）
-            // int previous_id = g_current_coroutine_id;
-
             // 设置当前协程ID
             g_current_coroutine_id = coroutine_id;
             task.resume(param);
-
-            // 恢复之前的协程ID
-            // g_current_coroutine_id = previous_id;
             g_current_coroutine_id = -1;
         }
     }
@@ -105,8 +98,17 @@ private:
 class CoroutineManagerImpl {
 public:
     std::unordered_map<int, std::shared_ptr<CoroutineBase>> coroutine_map_;
-    mutable xMutex map_mutex_;
+    mutable xMutex map_mutex;
+    mutable xMutex rpc_mutex;
     std::atomic<int> next_coroutine_id_{ 0 };
+
+    // RPC map
+    struct PendingRPC {
+        std::coroutine_handle<> handle = nullptr;
+        std::unique_ptr<std::vector<VariantType>> result; // 使用 unique_ptr 避免拷贝需求
+        bool done = false;
+    };
+    std::unordered_map<uint32_t, PendingRPC> rpc_map;
 
     // 生成唯一协程ID
     int generate_coroutine_id() {
@@ -114,22 +116,27 @@ public:
     }
 public:
     CoroutineManagerImpl() {
-        xnet_mutex_init(&map_mutex_);
+        xnet_mutex_init(&map_mutex);
+        xnet_mutex_init(&rpc_mutex);
     }
 
     ~CoroutineManagerImpl() {
         {
-            XMutexGuard lock(&map_mutex_);
-            std::cout << "Destroying CoroutineManager, cleaning up "
-                << coroutine_map_.size() << " coroutines" << std::endl;
+            XMutexGuard lock(&map_mutex);
             coroutine_map_.clear();
         }
-        xnet_mutex_uninit(&map_mutex_);
+        {
+            XMutexGuard lock(&rpc_mutex);  // 新增
+            rpc_map.clear();
+        }
+
+        xnet_mutex_uninit(&map_mutex);
+        xnet_mutex_uninit(&rpc_mutex);    // 新增
     }
 
     // 根据协程ID查找协程包装器
     std::shared_ptr<CoroutineBase> find_coroutine_by_id(int coroutine_id) {
-        XMutexGuard lock(&map_mutex_);
+        XMutexGuard lock(&map_mutex);
         auto it = coroutine_map_.find(coroutine_id);
         if (it != coroutine_map_.end()) {
             return it->second;
@@ -146,7 +153,7 @@ public:
 
         // 生成唯一ID
         int coroutine_id = generate_coroutine_id();
-		g_current_coroutine_id = coroutine_id;
+        g_current_coroutine_id = coroutine_id;
 
         // 调用用户函数获取协程任务
         void* task_ptr = func(arg);
@@ -155,10 +162,9 @@ public:
             return -1;
         }
 
-        // 将void*转换回SimpleTask*
-        SimpleTask* user_task = static_cast<SimpleTask*>(task_ptr);
+        // 将void*转换回xTask*
+        xTask* user_task = static_cast<xTask*>(task_ptr);
 
-        
         // 创建包装器，移动用户任务的所有权
         auto wrapper = std::make_shared<CoroutineWrapper>(
             std::move(*user_task), coroutine_id, func, arg);
@@ -168,7 +174,7 @@ public:
 
         // 保存到map
         {
-            XMutexGuard lock(&map_mutex_);
+            XMutexGuard lock(&map_mutex);
             coroutine_map_[coroutine_id] = wrapper;
         }
 
@@ -183,21 +189,16 @@ public:
 
     // 添加新的coroutine_run_task方法
     int coroutine_run_task(CoroutineTaskFunc func, void* arg) {
-        XMutexGuard guard(&map_mutex_);
+        XMutexGuard guard(&map_mutex);
 
         int coroutine_id = generate_coroutine_id();
         g_current_coroutine_id = coroutine_id;
 
-        // 直接使用函数返回的SimpleTask
-        SimpleTask task = func(arg);
+        // 直接使用函数返回的xTask
+        xTask task = func(arg);
 
         auto wrapper = std::make_shared<CoroutineWrapper>(std::move(task), coroutine_id);
         coroutine_map_[coroutine_id] = wrapper;
-
-        //// 初始恢复协程
-        //if (!wrapper->is_done()) {
-        //    wrapper->resume(nullptr);
-        //}
 
         return coroutine_id;
     }
@@ -212,19 +213,20 @@ public:
 
         if (!coroutine->is_done()) {
             coroutine->resume(param);
+            // 如果已完成，从map中移除
+            if (coroutine->is_done()) {
+                remove_coroutine(coroutine_id);
+            }
             return true;
         }
-        // 完成 RPC 调用
-        RpcResponseManager::instance().complete_rpc(pkg_id, std::move(result));
-
-        // 如果已完成，从map中移除
+        // 如果完成则移除并返回 false
         remove_coroutine(coroutine_id);
         return false;
     }
 
     // 安全地移除协程
     bool remove_coroutine(int coroutine_id) {
-        XMutexGuard lock(&map_mutex_);
+        XMutexGuard lock(&map_mutex);
         auto it = coroutine_map_.find(coroutine_id);
         if (it != coroutine_map_.end()) {
             std::cout << "Removing coroutine, ID: " << coroutine_id
@@ -237,7 +239,7 @@ public:
 
     // 检查协程状态
     bool is_coroutine_done(int coroutine_id) const {
-        XMutexGuard lock(&map_mutex_);
+        XMutexGuard lock(&map_mutex);
         auto it = coroutine_map_.find(coroutine_id);
         if (it != coroutine_map_.end()) {
             return it->second->is_done();
@@ -249,7 +251,7 @@ public:
     void check_coroutines() {
         std::vector<int> to_remove;
         {
-            XMutexGuard lock(&map_mutex_);
+            XMutexGuard lock(&map_mutex);
 
             for (auto it = coroutine_map_.begin(); it != coroutine_map_.end();) {
                 if (it->second->is_done()) {
@@ -273,7 +275,7 @@ public:
         std::vector<std::shared_ptr<CoroutineBase>> to_resume;
 
         {
-            XMutexGuard lock(&map_mutex_);
+            XMutexGuard lock(&map_mutex);
             to_resume.reserve(coroutine_map_.size());
             for (auto& [id, coroutine] : coroutine_map_) {
                 if (!coroutine->is_done()) {
@@ -290,7 +292,7 @@ public:
 
     // 获取活跃协程数量
     size_t get_active_count() const {
-        XMutexGuard lock(&map_mutex_);
+        XMutexGuard lock(&map_mutex);
         return coroutine_map_.size();
     }
 
@@ -301,16 +303,91 @@ public:
     // 获取所有活跃协程ID
     std::vector<int> get_active_coroutine_ids() const {
         std::vector<int> ids;
-        XMutexGuard lock(&map_mutex_);
+        XMutexGuard lock(&map_mutex);
         ids.reserve(coroutine_map_.size());
         for (auto& [id, coroutine] : coroutine_map_) {
             ids.push_back(id);
         }
         return ids;
     }
+
+    // -------------------- RPC 相关 --------------------
+    // register a waiter (await_suspend)
+    void register_rpc_waiter(uint32_t pkg_id, std::coroutine_handle<> h) {
+        std::coroutine_handle<> to_resume = nullptr;
+        std::unique_ptr<std::vector<VariantType>> result;
+
+        {
+            XMutexGuard lock(&rpc_mutex);
+
+            auto& p = rpc_map[pkg_id];
+            p.handle = h;
+
+            if (p.done && p.result) {
+                // 移动 result，并删除记录
+                // result = std::move(p.result);
+                to_resume = p.handle;
+            }
+        }
+
+        if (to_resume) {
+            // 因为 resume 不需要 result（恢复后 await_resume 读取）
+            to_resume.resume();
+        }
+    }
+
+    // network receive -> resume routine
+    void resume_rpc(uint32_t pkg_id, std::vector<VariantType>&& resp) {
+        std::coroutine_handle<> to_resume = nullptr;
+
+        {
+            XMutexGuard lock(&rpc_mutex);
+
+            auto& p = rpc_map[pkg_id];
+
+            p.result = std::make_unique<std::vector<VariantType>>(std::move(resp));
+            p.done = true;
+
+            if (p.handle) {
+                to_resume = p.handle;
+            }
+        }
+
+        if (to_resume) {
+            to_resume.resume();
+        }
+    }
+
+    std::vector<VariantType> take_rpc_result(uint32_t pkg_id) {
+        XMutexGuard lock(&rpc_mutex);
+
+        auto it = rpc_map.find(pkg_id);
+        if (it == rpc_map.end() || !it->second.result)
+            return {};   // error handling 或返回空包
+
+        auto r = std::move(*it->second.result); // XPackBuff move
+        rpc_map.erase(it);
+        return r;   // 返回 XPackBuff，仍然是 move-only，不复制
+    }
 };
 
-// C接口实现
+// ========== xcoroutine_rpc 命名空间桥接实现 ==========
+namespace xcoroutine_rpc {
+    void register_rpc_waiter(uint32_t pkg_id, std::coroutine_handle<> h) {
+        if (!g_manager) return;
+        g_manager->register_rpc_waiter(pkg_id, h);
+    }
+    void resume_rpc(uint32_t pkg_id, std::vector<VariantType>& result) {
+        if (!g_manager) return;
+        g_manager->resume_rpc(pkg_id, std::move(result));
+    }
+    std::vector<VariantType> take_rpc_result(uint32_t pkg_id) {
+        if (!g_manager) return {};
+        return g_manager->take_rpc_result(pkg_id);
+    }
+}
+
+// -------------------- 外部 C 接口实现 --------------------
 bool coroutine_init() {
     if (g_manager != nullptr) {
         return true; // 已经初始化
@@ -381,8 +458,8 @@ int coroutine_run_variant(CoroutineFunc func, const VariantCoroutineArgs& args) 
         return -1;
     }
 
-    // 将void*转换回SimpleTask*
-    SimpleTask* user_task = static_cast<SimpleTask*>(task_ptr);
+    // 将void*转换回xTask*
+    xTask* user_task = static_cast<xTask*>(task_ptr);
 
     // 创建包装器
     auto wrapper = std::make_shared<CoroutineWrapper>(
@@ -393,7 +470,7 @@ int coroutine_run_variant(CoroutineFunc func, const VariantCoroutineArgs& args) 
 
     // 保存到map
     {
-        XMutexGuard lock(&g_manager->map_mutex_);
+        XMutexGuard lock(&g_manager->map_mutex);
         g_manager->coroutine_map_[coroutine_id] = wrapper;
     }
 
@@ -449,6 +526,23 @@ size_t coroutine_get_active_count() {
 
 // 获取当前协程的ID
 int coroutine_self_id() {
-    //return g_current_coroutine_id == -1 ? g_manager->get_cur_id() : g_current_coroutine_id;
     return g_current_coroutine_id;
+}
+
+
+bool coroutine_resume(uint32_t pkg_id, std::vector<VariantType>&& resp) {
+    if (!g_manager) return false;
+    g_manager->resume_rpc(pkg_id, std::move(resp));
+    return true;
+}
+
+
+void xAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
+    if (!g_manager) return;
+    g_manager->register_rpc_waiter(pkg_id_, h);
+}
+
+std::vector<VariantType> xAwaiter::await_resume() noexcept {
+    if (!g_manager) return {};
+    return g_manager->take_rpc_result(pkg_id_);
 }

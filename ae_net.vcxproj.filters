@@ -10,8 +10,6 @@
     <ClCompile Include="ae.c" />
     <ClCompile Include="ae_ws2.c" />
     <ClCompile Include="anet.c" />
-    <ClCompile Include="request.c" />
-    <ClCompile Include="response.c" />
     <ClCompile Include="zmalloc.c" />
     <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="ae_iocp.c" />
@@ -25,16 +23,13 @@
     <ClInclude Include="ae.h" />
     <ClInclude Include="anet.h" />
     <ClInclude Include="fmacros.h" />
-    <ClInclude Include="request.h" />
-    <ClInclude Include="response.h" />
     <ClInclude Include="zmalloc.h" />
     <ClInclude Include="xcoroutine.h" />
     <ClInclude Include="xchannel.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xrpc.h" />
     <ClInclude Include="xpack.h" />
-    <ClInclude Include="xrpc_awaiter.h" />
-    <ClInclude Include="xrpc_template.h" />
+    <ClInclude Include="xrpc.inl" />
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xhandle.h" />
   </ItemGroup>

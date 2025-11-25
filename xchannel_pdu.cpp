@@ -36,7 +36,7 @@ static int blp2_write_header(xChannel* channel, size_t data_len) {
         return PACKET_FD_INVALD;
     }
     // 检查缓冲区空间
-    if (channel->wlen - (channel->wpos - channel->wbuf) < data_len + 2) {
+    if (channel->wlen - (int)(channel->wpos - channel->wbuf) < (int)data_len + 2) {
         return PACKET_BUF_LEAK;
     }
 
@@ -86,7 +86,7 @@ static xChannelErrCode blp4_check_complete(xChannel* channel) {
     uint8_t* b = (uint8_t*)channel->rbuf;
     uint32_t pkg_len = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
 
-    if (len < pkg_len + 4) {
+    if (len < (int)pkg_len + 4) {
         return PACKET_INCOMPLETE;
     }
 
@@ -99,7 +99,7 @@ static int blp4_write_header(xChannel* channel, size_t data_len) {
     }
 
     // 检查缓冲区空间
-    if (channel->wlen - (channel->wpos - channel->wbuf) < data_len + 4) {
+    if (channel->wlen - (channel->wpos - channel->wbuf) < (int)data_len + 4) {
         return PACKET_BUF_LEAK;
     }
 
@@ -127,7 +127,7 @@ static int blp4_read_header(xChannel* channel, size_t* data_len) {
     uint8_t* b = (uint8_t*)channel->rbuf;
     uint32_t pkg_len = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
 
-    if (len < pkg_len + 4) {
+    if (len < (int)pkg_len + 4) {
         return PACKET_INCOMPLETE;
     }
 

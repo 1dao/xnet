@@ -3,7 +3,6 @@
 #include "xpack.h"
 #include "xcoroutine.h"
 #include "xrpc.h"
-#include "xrpc_template.h"  // 包含模板实现
 #include <iostream>
 #include <string>
 #include <thread>
@@ -30,64 +29,65 @@ int client_close_handler(xChannel* channel, char* buf, int len) {
     return 0;
 }
 
-// 综合测试协程
-void* comprehensive_test_coroutine(void* arg) {
-    return new SimpleTask([arg]() -> SimpleTask {
-        std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
-		xChannel* g_client_channel = static_cast<xChannel*>(arg);
-        if (!g_client_channel) {
-            std::cout << "No connection to server" << std::endl;
-            co_return;
-        }
-
-        // 测试1: 基本运算
-        std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
-        for (int i = 1; i <= 3; i++) {
-            XPackBuff result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3, XPackBuff("adfald1111"));
-            if (result.success()) {
-                auto unpacked = xpack_unpack(result.get(), result.len);
-                if (unpacked.size() >= 2) {
-                    int sum = xpack_variant_data<int>(unpacked[0]);
-                    std::string status = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[1]));
-                    std::cout << "Test " << i << ": " << (i * 5) << " + " << (i * 3)
-                        << " = " << sum << " (" << status << ")" << std::endl;
-                }
-            }
-        }
-
-        // 测试2: 字符串处理
-        std::cout << "\n--- Testing String Processing ---" << std::endl;
-        std::vector<std::string> test_strings = { "test1", "test2", "test3" };
-        for (const auto& str : test_strings) {
-            XPackBuff str_buff = string_to_xpack_buff(str);
-            XPackBuff result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
-            if (result.success()) {
-                auto unpacked = xpack_unpack(result.get(), result.len);
-                if (unpacked.size() >= 2) {
-                    std::string processed = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[0]));
-                    int code = xpack_variant_data<int>(unpacked[1]);
-                    std::cout << "String test: '" << str << "' -> '" << processed
-                        << "' (code: " << code << ")" << std::endl;
-                }
-            }
-        }
-
-        // 测试3: 错误处理
-        std::cout << "\n--- Testing Error Handling ---" << std::endl;
-
-        // 测试无效协议
-        XPackBuff error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
-        if (!error_result.success()) {
-            std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
-        }
-
-        std::cout << "\n=== Comprehensive Test Coroutine Finished ===" << std::endl;
-        co_return;
-        }());
-}
+//// 综合测试协程
+//void* comprehensive_test_coroutine(void* arg) {
+//    return new xTask([arg]() -> xTask {
+//        std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
+//		xChannel* g_client_channel = static_cast<xChannel*>(arg);
+//        if (!g_client_channel) {
+//            std::cout << "No connection to server" << std::endl;
+//            co_return;
+//        }
+//
+//        // 测试1: 基本运算
+//        std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
+//        for (int i = 1; i <= 3; i++) {
+//
+//            std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, 1, i * 5, i * 3, XPackBuff("adfald1111"));
+//            if (result.success()) {
+//                auto unpacked = xpack_unpack(result.get(), result.len);
+//                if (unpacked.size() >= 2) {
+//                    int sum = xpack_variant_data<int>(unpacked[0]);
+//                    std::string status = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[1]));
+//                    std::cout << "Test " << i << ": " << (i * 5) << " + " << (i * 3)
+//                        << " = " << sum << " (" << status << ")" << std::endl;
+//                }
+//            }
+//        }
+//
+//        // 测试2: 字符串处理
+//        std::cout << "\n--- Testing String Processing ---" << std::endl;
+//        std::vector<std::string> test_strings = { "test1", "test2", "test3" };
+//        for (const auto& str : test_strings) {
+//            XPackBuff str_buff = string_to_xpack_buff(str);
+//            XPackBuff result = co_yield xrpc_pcall(g_client_channel, 2, str_buff);
+//            if (result.success()) {
+//                auto unpacked = xpack_unpack(result.get(), result.len);
+//                if (unpacked.size() >= 2) {
+//                    std::string processed = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[0]));
+//                    int code = xpack_variant_data<int>(unpacked[1]);
+//                    std::cout << "String test: '" << str << "' -> '" << processed
+//                        << "' (code: " << code << ")" << std::endl;
+//                }
+//            }
+//        }
+//
+//        // 测试3: 错误处理
+//        std::cout << "\n--- Testing Error Handling ---" << std::endl;
+//
+//        // 测试无效协议
+//        XPackBuff error_result = co_yield xrpc_pcall(g_client_channel, 999, 1, 2);
+//        if (!error_result.success()) {
+//            std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
+//        }
+//
+//        std::cout << "\n=== Comprehensive Test Coroutine Finished ===" << std::endl;
+//        co_return;
+//        }());
+//}
 
 // 简化后的协程函数写法
-SimpleTask comprehensive_test_run_task(void* arg) {
+xTask comprehensive_test_run_task(void* arg) {
     std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
     xChannel* g_client_channel = static_cast<xChannel*>(arg);
     if (!g_client_channel) {
@@ -98,16 +98,10 @@ SimpleTask comprehensive_test_run_task(void* arg) {
     // 测试1: 基本运算
     std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
     for (int i = 1; i <= 3; i++) {
-        XPackBuff result = co_await xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
-        if (result.success()) {
-            auto unpacked = xpack_unpack(result.get(), result.len);
-            if (unpacked.size() >= 2) {
-                int sum = xpack_variant_data<int>(unpacked[0]);
-                std::string status = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[1]));
-                std::cout << "Test " << i << ": " << (i * 5) << " + " << (i * 3)
-                    << " = " << sum << " (" << status << ")" << std::endl;
-            }
-        }
+        std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
+        std::cout<< "rpc resp, pt=" << i<<", resp v1:" << xpack_variant_data<int>(result[0]) 
+            << ", resp v2:" << xpack_variant_data<int>(result[1])
+            << ", resp v3:" << xpack_buff_to_string(xpack_variant_data<XPackBuff>(result[3])) << std::endl;
     }
 
     // 测试2: 字符串处理
@@ -115,26 +109,17 @@ SimpleTask comprehensive_test_run_task(void* arg) {
     std::vector<std::string> test_strings = { "test1", "test2", "test3" };
     for (const auto& str : test_strings) {
         XPackBuff str_buff = string_to_xpack_buff(str);
-        XPackBuff result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
-        if (result.success()) {
-            auto unpacked = xpack_unpack(result.get(), result.len);
-            if (unpacked.size() >= 2) {
-                std::string processed = xpack_buff_to_string(xpack_variant_data<XPackBuff>(unpacked[0]));
-                int code = xpack_variant_data<int>(unpacked[1]);
-                std::cout << "String test: '" << str << "' -> '" << processed
-                    << "' (code: " << code << ")" << std::endl;
-            }
-        }
+        std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, 2, str_buff);
+        std::cout << "String test: '" << str << "' -> '" << xpack_buff_to_string(xpack_variant_data<XPackBuff>(result[0]))
+            << "' (code: " << xpack_variant_data<int>(result[1]) << ")" << std::endl;
     }
-
     // 测试3: 错误处理
     std::cout << "\n--- Testing Error Handling ---" << std::endl;
 
-    // 测试无效协议
-    XPackBuff error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
-    if (!error_result.success()) {
-        std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
-    }
+    // // 测试无效协议
+    // std::vector<VariantType> error_result = co_yield xrpc_pcall(g_client_channel, 999, 1, 2);
+    // std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
+
 
     std::cout << "\n=== Comprehensive Test Coroutine Finished ===" << std::endl;
     co_return;

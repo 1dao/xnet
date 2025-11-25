@@ -38,11 +38,11 @@ bool xrpc_resp_blp4(xChannel* channel) {
             return false;
         }
 
-        // 创建 XPackBuff
-        XPackBuff result(response_data, response_len);
+        //// 创建 XPackBuff
+        //XPackBuff result(response_data, response_len);
 
-        // 完成 RPC 调用
-        RpcResponseManager::instance().complete_rpc(pkg_id, std::move(result));
+        //// --- 新: 直接交给协程管理器，让对应协程 resume ---
+        //xcoroutine_rpc::resume_rpc(pkg_id, std::move(result));
 
         // 移动缓冲区
         int total_packet_size = static_cast<int>(pkg_len) + 4;
@@ -69,7 +69,7 @@ int xrpc_resp(xChannel* s, int co_id, uint32_t pkg_id, XPackBuff& res) {
     if (remain < hlen + plen) {
         // 如果缓冲区空间不足，直接返回一个错误 awaiter
         std::cout << "xrpc_resp: Buffer overflow" << std::endl;
-        return XRPC_SEND_FAILED;
+        return XNET_BUFF_LIMIT;
     }
 
     // 写头

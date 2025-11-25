@@ -132,8 +132,6 @@
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Default</CompileAs>
     </ClCompile>
     <ClCompile Include="xcoroutine.cpp" />
-    <ClCompile Include="request.c" />
-    <ClCompile Include="response.c" />
     <ClCompile Include="xchannel_pdu.cpp" />
     <ClCompile Include="xhandle.cpp" />
     <ClCompile Include="xrpc.cpp" />
@@ -146,15 +144,12 @@
     <ClInclude Include="anet.h" />
     <ClInclude Include="xcoroutine.h" />
     <ClInclude Include="fmacros.h" />
-    <ClInclude Include="request.h" />
-    <ClInclude Include="response.h" />
     <ClInclude Include="xhandle.h" />
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xpack.h" />
     <ClInclude Include="xrpc.h" />
-    <ClInclude Include="xrpc_awaiter.h" />
-    <ClInclude Include="xrpc_template.h" />
+    <ClInclude Include="xrpc.inl" />
     <ClInclude Include="zmalloc.h" />
   </ItemGroup>
   <ItemGroup>

@@ -1,6 +1,6 @@
 ﻿// coroutine_manager.h
-#ifndef COROUTINE_MANAGER_H
-#define COROUTINE_MANAGER_H
+#ifndef _XCOROUTINE_H
+#define _XCOROUTINE_H
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -19,54 +19,52 @@
 #include <variant>
 #include <string>
 #include <any>
+#include <optional>
+#include <unordered_map>
+
+#include "xpack.h"
 
 // 简化的协程任务类型
-struct SimpleTask {
+struct xTask {
     struct promise_type {
-        int coroutine_id;
-        void* resume_param;
+        int coroutine_id = 0;
+        void* resume_param = nullptr;
+        promise_type() = default;
 
-        promise_type() : coroutine_id(0), resume_param(nullptr) {}
-
-        SimpleTask get_return_object() {
-            return SimpleTask{ std::coroutine_handle<promise_type>::from_promise(*this) };
-        }
-
+        xTask get_return_object() { return xTask{ std::coroutine_handle<promise_type>::from_promise(*this) };}
         std::suspend_never initial_suspend() { return {}; }
         std::suspend_always final_suspend() noexcept { return {}; }
 
         void unhandled_exception() {
             try {
                 std::rethrow_exception(std::current_exception());
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 std::cerr << "Coroutine exception: " << e.what() << std::endl;
-            }
-            catch (...) {
+            } catch (...) {
                 std::cerr << "Coroutine unknown exception" << std::endl;
             }
         }
-
         void return_void() {}
 
-        // 支持任何可等待类型
         template<typename Awaitable>
         auto await_transform(Awaitable&& awaitable) {
             return std::forward<Awaitable>(awaitable);
+        }
+
+        template<typename T>
+        auto yield_value(T&& v) {
+            // coroutine_id 在 coroutine manager 启动时会被设置为当前协程ID
+            return v.awaiter_cvt();
         }
     };
 
     std::coroutine_handle<promise_type> handle_;
 
-    SimpleTask(std::coroutine_handle<promise_type> h) : handle_(h) {}
-    SimpleTask(const SimpleTask&) = delete;
-    SimpleTask& operator=(const SimpleTask&) = delete;
-
-    SimpleTask(SimpleTask&& other) noexcept : handle_(other.handle_) {
-        other.handle_ = nullptr;
-    }
-
-    SimpleTask& operator=(SimpleTask&& other) noexcept {
+    xTask(std::coroutine_handle<promise_type> h) : handle_(h) {}
+    xTask(const xTask&) = delete;
+    xTask& operator=(const xTask&) = delete;
+    xTask(xTask&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr;}
+    xTask& operator=(xTask&& other) noexcept {
         if (this != &other) {
             if (handle_) handle_.destroy();
             handle_ = other.handle_;
@@ -74,23 +72,14 @@ struct SimpleTask {
         }
         return *this;
     }
+    ~xTask() { if (handle_) handle_.destroy();}
 
-    ~SimpleTask() {
-        if (handle_) {
-            handle_.destroy();
-        }
-    }
-
-    bool done() const {
-        return !handle_ || handle_.done();
-    }
-
+    bool done() const { return !handle_ || handle_.done();}
     void resume(void* param) {
         if (handle_ && !handle_.done()) {
             handle_.resume();
         }
     }
-
     void* address() const {
         return handle_ ? handle_.address() : nullptr;
     }
@@ -102,7 +91,7 @@ struct SimpleTask {
 
 // 协程函数类型
 typedef void* (*CoroutineFunc)(void*);
-typedef SimpleTask(*CoroutineTaskFunc)(void*);
+typedef xTask(*CoroutineTaskFunc)(void*);
 
 // 使用 std::variant 的多类型参数支持
 using CoroutineArg = std::variant<
@@ -202,6 +191,8 @@ int coroutine_run_variant(CoroutineFunc func, std::initializer_list<CoroutineArg
 // 通过ID恢复特定协程并传递参数
 bool coroutine_resume(int coroutine_id, void* param);
 
+bool coroutine_resume(uint32_t pkg_id, std::vector<VariantType>&& resp);
+
 // 恢复所有可运行的协程
 void coroutine_resume_all();
 
@@ -214,4 +205,17 @@ size_t coroutine_get_active_count();
 // 获取当前协程的ID（在协程内部调用）
 int coroutine_self_id();
 
-#endif // COROUTINE_MANAGER_H
+// Awaiter：协程挂起/恢复的桥接（在 xcoroutine 中实现 register/take）
+class xAwaiter {
+public:
+    explicit xAwaiter(uint32_t pkg_id = 0) noexcept : pkg_id_(pkg_id) {}
+    bool await_ready() const noexcept { return false; }
+    void await_suspend(std::coroutine_handle<> h) noexcept;
+    std::vector<VariantType> await_resume() noexcept;
+
+    uint32_t pkg_id() const noexcept { return pkg_id_; }
+private:
+    uint32_t pkg_id_;
+};
+
+#endif // _XCOROUTINE_H

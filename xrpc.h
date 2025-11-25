@@ -3,22 +3,24 @@
 
 #include "xchannel.h"
 #include "xpack.h"
-#include "xrpc_awaiter.h"
 
-enum XRpcError {
-    XRPC_SUCCESS = 0,
-    XRPC_NOT_IN_COROUTINE = -1,
-    XRPC_SEND_FAILED = -2,
-    XRPC_TIMEOUT = -3,
-    XRPC_INVALID_RESPONSE = -4
+enum xNetErr {
+    XNET_SUCCESS = 0,
+    XNET_NOT_IN_COROUTINE = -1,
+    XNET_BUFF_LIMIT = -2,
+    XNET_TIMEOUT = -3,
+    XNET_INVALID_RESPONSE = -4
 };
+struct RpcCall;
 
 // 检查 RPC 响应
 bool xrpc_resp_blp4(xChannel* channel);
 
 // RPC 调用函数声明
 template<typename... Args>
-xrpc_awaiter xrpc_pcall(xChannel* channel, uint16_t protocol, Args&&... args);
+RpcCall rpc_pcall(xChannel* s, uint16_t protocol, Args&&... args);
 int xrpc_resp(xChannel* s, int co_id, uint32_t pkg_id, XPackBuff& res);
+
+#include "xrpc.inl"
 
 #endif // _XRPC_H

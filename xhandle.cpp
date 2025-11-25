@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include "xlog.h"
 #include "xpack.h"
-#include "xrpc_template.h"
+#include "xrpc.h"
 
 //定义一个全局变量，存储handle
 std::unordered_map<int, ProtocolPostHandler> _handles_post;
@@ -75,8 +75,9 @@ int xhandle_on_pack(xChannel* s, char* buf, int len) {
         cur += sizeof(pkg_id);
         co_id = ntohl(*(int*)cur);
         cur += sizeof(co_id);
-        std::vector<VariantType> args = xpack_unpack(cur, len);
-        coroutine_resume(co_id, &args);
+        std::vector<VariantType> res = xpack_unpack(cur, len);
+        // coroutine_resume(co_id, &res);
+        coroutine_resume(pkg_id, std::move(res));
     } else if(is_rpc==1) {
         pkg_id = ntohl(*(uint32_t*)cur);
         cur += sizeof(pkg_id);
