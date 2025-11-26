@@ -55,6 +55,31 @@ xAwaiter xrpc_pcall(xChannel* s, uint16_t protocol, Args&&... args) {
         return awaiter;
 }
 
+// 检查 RPC 结果的辅助宏/函数
+#define XRPC_CHECK_RETURN(result, msg) \
+    do { \
+        if (result.empty()) { \
+            xlog_err("%s: empty result", msg); \
+            co_return; \
+        } \
+        int _retcode = std::get<int>(result[0]); \
+        if (_retcode != 0) { \
+            xlog_err("%s failed, retcode: %d", msg, _retcode); \
+            co_return; \
+        } \
+    } while(0)
+
+// 获取 retcode
+inline int xrpc_retcode(const std::vector<VariantType>& result) {
+    if (result.empty()) return -999;
+    return std::get<int>(result[0]);
+}
+
+// 检查是否成功
+inline bool xrpc_ok(const std::vector<VariantType>& result) {
+    return !result.empty() && std::get<int>(result[0]) == 0;
+}
+
 int _xrpc_resp(xChannel* s, int co_id, uint32_t wait_id, int retcode, XPackBuff& res);
 
 inline int _xrpc_resp_ok(xChannel* s, int co_id, uint32_t wait_id, XPackBuff& res) {

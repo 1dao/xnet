@@ -10,12 +10,12 @@
 #include "xlog.h"
 
 // 辅助函数
-std::string xpack_buff_to_string(const XPackBuff& buff) {
+std::string xpack_cast_string(const XPackBuff& buff) {
     if (buff.len <= 0 || !buff.get()) return "";
     return std::string(buff.get(), buff.len);
 }
 
-XPackBuff string_to_xpack_buff(const std::string& str) {
+XPackBuff xpack_cast_buff(const std::string& str) {
     return XPackBuff(str.c_str(), static_cast<int>(str.length()));
 }
 
@@ -23,31 +23,6 @@ XPackBuff string_to_xpack_buff(const std::string& str) {
 int client_close_handler(xChannel* channel, char* buf, int len) {
     std::cout << "Connection to server closed" << std::endl;
     return 0;
-}
-
-// 检查 RPC 结果的辅助宏/函数
-#define RPC_CHECK(result, msg) \
-    do { \
-        if (result.empty()) { \
-            xlog_err("%s: empty result", msg); \
-            co_return; \
-        } \
-        int _retcode = std::get<int>(result[0]); \
-        if (_retcode != 0) { \
-            xlog_err("%s failed, retcode: %d", msg, _retcode); \
-            co_return; \
-        } \
-    } while(0)
-
-// 获取 retcode
-inline int rpc_retcode(const std::vector<VariantType>& result) {
-    if (result.empty()) return -999;
-    return std::get<int>(result[0]);
-}
-
-// 检查是否成功
-inline bool rpc_ok(const std::vector<VariantType>& result) {
-    return !result.empty() && std::get<int>(result[0]) == 0;
 }
 
 //=============================================================================
@@ -61,7 +36,7 @@ xTask test_basic_rpc(void* arg) {
     auto result = co_await xrpc_pcall(channel, 1, 100, 200, XPackBuff("hello"));
 
     // 检查结果
-    int retcode = rpc_retcode(result);
+    int retcode = xrpc_retcode(result);
     if (retcode != 0) {
         xlog_err("RPC failed, retcode: %d", retcode);
         co_return;
@@ -77,7 +52,7 @@ xTask test_basic_rpc(void* arg) {
     xlog_info("  data[0]: %d", xpack_cast<int>(result[1]));
     xlog_info("  data[1]: %d", xpack_cast<int>(result[2]));
     xlog_info("  data[2]: %d", xpack_cast<int>(result[3]));
-    xlog_info("  data[3]: %s", xpack_buff_to_string(xpack_cast<XPackBuff>(result[4])).c_str());
+    xlog_info("  data[3]: %s", xpack_cast_string(xpack_cast<XPackBuff>(result[4])).c_str());
 
     xlog_info("=== Test 1 Completed ===\n");
     co_return;
@@ -95,8 +70,8 @@ xTask test_multiple_rpc(void* arg) {
 
         auto result = co_await xrpc_pcall(channel, 1, i * 10, i * 20, XPackBuff("test"));
 
-        if (!rpc_ok(result)) {
-            xlog_err("Call %d failed, retcode: %d", i, rpc_retcode(result));
+        if (!xrpc_ok(result)) {
+            xlog_err("Call %d failed, retcode: %d", i, xrpc_retcode(result));
             continue;
         }
 
@@ -121,7 +96,7 @@ xTask test_error_handling(void* arg) {
     xlog_info("--- Testing invalid protocol ---");
     auto result = co_await xrpc_pcall(channel, 999, 1, 2);
 
-    int retcode = rpc_retcode(result);
+    int retcode = xrpc_retcode(result);
     if (retcode != 0) {
         xlog_info("Expected error received, retcode: %d", retcode);
     } else {
@@ -144,16 +119,16 @@ xTask test_string_processing(void* arg) {
     for (const auto& str : test_strings) {
         auto result = co_await xrpc_pcall(channel, 2, 0, 0, XPackBuff(str.c_str()));
 
-        if (!rpc_ok(result)) {
+        if (!xrpc_ok(result)) {
             xlog_err("String test failed for '%s', retcode: %d",
-                     str.c_str(), rpc_retcode(result));
+                     str.c_str(), xrpc_retcode(result));
             continue;
         }
 
         xlog_info("String '%s' processed successfully", str.c_str());
         if (result.size() > 4) {
             xlog_info("  Response: %s",
-                      xpack_buff_to_string(xpack_cast<XPackBuff>(result[4])).c_str());
+                      xpack_cast_string(xpack_cast<XPackBuff>(result[4])).c_str());
         }
     }
 
@@ -172,8 +147,8 @@ xTask test_comprehensive(void* arg) {
     xlog_info("--- First RPC call ---");
     auto result1 = co_await xrpc_pcall(channel, 1, 333, 7777, XPackBuff("first"));
 
-    if (!rpc_ok(result1)) {
-        xlog_err("First RPC failed, retcode: %d", rpc_retcode(result1));
+    if (!xrpc_ok(result1)) {
+        xlog_err("First RPC failed, retcode: %d", xrpc_retcode(result1));
         co_return;
     }
     xlog_info("First RPC success, data[0]: %d", xpack_cast<int>(result1[1]));
@@ -182,8 +157,8 @@ xTask test_comprehensive(void* arg) {
     xlog_info("--- Second RPC call ---");
     auto result2 = co_await xrpc_pcall(channel, 1, 666, 888, XPackBuff("second"));
 
-    if (!rpc_ok(result2)) {
-        xlog_err("Second RPC failed, retcode: %d", rpc_retcode(result2));
+    if (!xrpc_ok(result2)) {
+        xlog_err("Second RPC failed, retcode: %d", xrpc_retcode(result2));
         co_return;
     }
     xlog_info("Second RPC success, data[0]: %d", xpack_cast<int>(result2[1]));
@@ -192,8 +167,8 @@ xTask test_comprehensive(void* arg) {
     xlog_info("--- Third RPC call (different protocol) ---");
     auto result3 = co_await xrpc_pcall(channel, 2, 111, 222, XPackBuff("third"));
 
-    if (!rpc_ok(result3)) {
-        xlog_err("Third RPC failed, retcode: %d", rpc_retcode(result3));
+    if (!xrpc_ok(result3)) {
+        xlog_err("Third RPC failed, retcode: %d", xrpc_retcode(result3));
         co_return;
     }
     xlog_info("Third RPC success");
