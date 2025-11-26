@@ -1,4 +1,4 @@
-// xcoroutine.cpp
+// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
 
 #include "xcoroutine.h"
 #include <coroutine>
@@ -8,40 +8,64 @@
 #include <atomic>
 
 #include "xmutex.h"
+#include "xlog.h"
 
-// 前向声明
+// Forward declaration
 class xCoroService;
 
-// 单例实例
+// Singleton instance
 static xCoroService* _co_svs = nullptr;
 
-// 线程局部存储
+// Thread local storage
 static thread_local int _co_cid = -1;
 
-// 协程包装器
-struct xCoro {
-    xTask task;
-    int coroutine_id;
+// Global longjmp context for hardware exception protection (similar to sigLJ in daemon.c)
+static thread_local xCoroutineLJ* g_current_lj = nullptr;
 
-    xCoro(xTask&& t, int id) : task(std::move(t)), coroutine_id(id) {
-        task.get_promise().coroutine_id = id;
+// Signal handler for Unix/Linux systems
+#ifndef _WIN32
+static void coroutine_signal_handler(int sig) {
+    if (g_current_lj && g_current_lj->in_protected_call) {
+        g_current_lj->sig = sig;
+        longjmp(g_current_lj->buf, 1);  // Remove std:: prefix
+    } else {
+        // Signal in non-protected call, restore default handling
+        signal(sig, SIG_DFL);
+        raise(sig);
     }
-    ~xCoro() = default;
-    xCoro(const xCoro&) = delete;
-    xCoro& operator=(const xCoro&) = delete;
+}
 
-    bool is_done() const { return task.done(); }
-    void resume(void* param) {
-        if (!is_done()) {
-            _co_cid = coroutine_id;
-            task.resume(param);
-            _co_cid = -1;
-        }
+// Install signal handlers for Unix/Linux
+static void install_signal_handlers() {
+    struct sigaction sa;
+    sa.sa_handler = coroutine_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART | SA_NODEFER;
+
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGTRAP, &sa, nullptr);
+}
+#else
+// Windows: Use structured exception handling
+static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo) {
+    if (g_current_lj && g_current_lj->in_protected_call) {
+        g_current_lj->sig = ExceptionInfo->ExceptionRecord->ExceptionCode;
+        longjmp(g_current_lj->buf, 1);  // Remove std:: prefix
     }
-    int get_id() const { return coroutine_id; }
-};
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 
-// Mutex RAII 包装器
+static void install_signal_handlers() {
+    // Install vectored exception handler for Windows
+    AddVectoredExceptionHandler(1, coroutine_exception_handler);
+}
+#endif
+
+// Mutex RAII wrapper
 class XMutexGuard {
 public:
     explicit XMutexGuard(xMutex* mutex) : m_mutex(mutex) {
@@ -56,9 +80,36 @@ private:
     xMutex* m_mutex;
 };
 
-// 协程管理器实现
+// Safe resume implementation for xTask
+bool xTask::resume_safe(void* param, xCoroutineLJ* lj) {
+    if (!handle_ || handle_.done()) return false;
+
+    // Save current LJ state
+    xCoroutineLJ* old_lj = g_current_lj;
+    g_current_lj = lj;
+    lj->in_protected_call = true;
+    lj->sig = 0;
+
+    // Use hardware exception protection
+    if (setjmp(lj->buf) == 0) {
+        // Normal execution path
+        handle_.resume();
+    } else {
+        // Hardware exception path - jumped back from exception handler
+        handle_.promise().hardware_signal = lj->sig;
+    }
+
+    lj->in_protected_call = false;
+    g_current_lj = old_lj;
+    return true;
+}
+
+// Coroutine manager implementation
 class xCoroService {
 public:
+    // Forward declaration of xCoro
+    struct xCoro;
+
     std::unordered_map<int, std::unique_ptr<xCoro>> coroutine_map_;
     mutable xMutex map_mutex;
     mutable xMutex wait_mutex;
@@ -80,6 +131,9 @@ public:
     xCoroService() {
         xnet_mutex_init(&map_mutex);
         xnet_mutex_init(&wait_mutex);
+
+        // Install hardware exception handlers
+        install_signal_handlers();
     }
 
     ~xCoroService() {
@@ -95,6 +149,56 @@ public:
         xnet_mutex_uninit(&wait_mutex);
     }
 
+    // xCoro definition inside xCoroService
+    struct xCoro {
+        xTask task;
+        int coroutine_id;
+        xCoroutineLJ lj;  // Hardware exception protection context
+
+        xCoro(xTask&& t, int id) : task(std::move(t)), coroutine_id(id) {
+            task.get_promise().coroutine_id = id;
+            lj.env = nullptr;
+            lj.sig = 0;
+            lj.in_protected_call = false;
+        }
+        ~xCoro() = default;
+        xCoro(const xCoro&) = delete;
+        xCoro& operator=(const xCoro&) = delete;
+
+        bool is_done() const {
+            return task.done();
+        }
+
+        bool resume_safe(void* param) {
+            if (is_done()) return false;
+
+            _co_cid = coroutine_id;
+            bool success = task.resume_safe(param, &lj);
+            _co_cid = -1;
+
+            // Check for any type of exception
+            if (task.has_any_exception()) {
+                std::string error_msg = task.get_exception_message();
+                xlog_err("Coroutine %d exception: %s", coroutine_id, error_msg.c_str());
+                return false;
+            }
+
+            return success;
+        }
+
+        int get_id() const { return coroutine_id; }
+
+        // Check if coroutine ended due to hardware exception
+        bool has_hardware_exception() const {
+            return task.get_promise().has_hardware_exception();
+        }
+
+        // Get hardware exception message
+        std::string get_hardware_exception_message() const {
+            return task.get_promise().get_hardware_exception_message();
+        }
+    };
+
     xCoro* find_coroutine_by_id(int id) {
         XMutexGuard lock(&map_mutex);
         auto it = coroutine_map_.find(id);
@@ -106,11 +210,30 @@ public:
         int old_id = _co_cid;
         _co_cid = coro_id;
 
-        xTask task = func(arg);
+        xTask task;
+        xCoroutineLJ creation_lj;
+        creation_lj.env = nullptr;
+        creation_lj.sig = 0;
+        creation_lj.in_protected_call = true;
 
+        // Use hardware exception protection for coroutine creation
+        xCoroutineLJ* old_lj = g_current_lj;
+        g_current_lj = &creation_lj;
+
+        // Use setjmp/longjmp for both Windows and Unix
+        if (setjmp(creation_lj.buf) == 0) {
+            task = func(arg);
+        } else {
+            // Hardware exception during coroutine creation
+            xlog_err("Coroutine %d creation crashed with hardware exception", coro_id);
+            task = xTask{};
+        }
+
+        creation_lj.in_protected_call = false;
+        g_current_lj = old_lj;
         _co_cid = old_id;
 
-        if (task.done()) {
+        if (task.done() || !task.handle_) {
             return coro_id;
         }
 
@@ -126,11 +249,11 @@ public:
         if (!coro) return false;
 
         if (!coro->is_done()) {
-            coro->resume(param);
-            if (coro->is_done()) {
+            bool success = coro->resume_safe(param);
+            if (coro->is_done() || !success) {
                 remove_coroutine(id);
             }
-            return true;
+            return success;
         }
         remove_coroutine(id);
         return false;
@@ -161,16 +284,22 @@ public:
         }
         for (int id : ids) {
             xCoro* coro = find_coroutine_by_id(id);
-            if (coro && !coro->is_done()) coro->resume(nullptr);
+            if (coro && !coro->is_done()) coro->resume_safe(nullptr);
         }
     }
 
     size_t get_active_count() const {
         XMutexGuard lock(&map_mutex);
-        return coroutine_map_.size();
+        size_t count = 0;
+        for (const auto& [id, coro] : coroutine_map_) {
+            if (!coro->is_done()) {
+                count++;
+            }
+        }
+        return count;
     }
 
-    // -------------------- Wait 相关 --------------------
+    // -------------------- Wait related --------------------
     void register_waiter(uint32_t wait_id, std::coroutine_handle<> h, int coro_id) {
         std::coroutine_handle<> to_resume = nullptr;
         int resume_coro_id = -1;
@@ -178,14 +307,14 @@ public:
             XMutexGuard lock(&wait_mutex);
             auto& p = wait_map_[wait_id];
             p.handle = h;
-            p.coro_id = coro_id;  // 保存协程ID
+            p.coro_id = coro_id;  // Save coroutine ID
             if (p.done && p.result) {
                 to_resume = p.handle;
                 resume_coro_id = p.coro_id;
             }
         }
         if (to_resume) {
-            _co_cid = resume_coro_id;  // 恢复协程ID
+            _co_cid = resume_coro_id;  // Restore coroutine ID
             to_resume.resume();
             _co_cid = -1;
         }
@@ -201,11 +330,11 @@ public:
             p.done = true;
             if (p.handle) {
                 to_resume = p.handle;
-                resume_coro_id = p.coro_id;  // 获取协程ID
+                resume_coro_id = p.coro_id;  // Get coroutine ID
             }
         }
         if (to_resume) {
-            _co_cid = resume_coro_id;  // 恢复协程ID
+            _co_cid = resume_coro_id;  // Restore coroutine ID
             to_resume.resume();
             _co_cid = -1;
         }
@@ -221,7 +350,7 @@ public:
     }
 };
 
-// -------------------- Awaiter 实现 --------------------
+// -------------------- Awaiter implementation --------------------
 std::coroutine_handle<> xFinAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
     if (_co_svs && coroutine_id > 0) {
         _co_svs->remove_coroutine(coroutine_id);
@@ -232,7 +361,7 @@ std::coroutine_handle<> xFinAwaiter::await_suspend(std::coroutine_handle<> h) no
 xAwaiter::xAwaiter() noexcept
     : wait_id_(_co_svs ? _co_svs->generate_wait_id() : 0)
     , error_code_(0)
-    , coro_id_(_co_cid) {  // 保存当前协程ID
+    , coro_id_(_co_cid) {  // Save current coroutine ID
 }
 
 xAwaiter::xAwaiter(int err) noexcept
@@ -243,7 +372,7 @@ xAwaiter::xAwaiter(int err) noexcept
 
 void xAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
     if (!_co_svs) return;
-    _co_svs->register_waiter(wait_id_, h, coro_id_); 
+    _co_svs->register_waiter(wait_id_, h, coro_id_);
 }
 
 std::vector<VariantType> xAwaiter::await_resume() noexcept {
@@ -256,11 +385,12 @@ std::vector<VariantType> xAwaiter::await_resume() noexcept {
     return _co_svs->take_wait_result(wait_id_);
 }
 
-// -------------------- 外部接口 --------------------
+// -------------------- External interfaces --------------------
 bool coroutine_init() {
     if (_co_svs) return true;
     try {
         _co_svs = new xCoroService();
+        xlog_info("Coroutine system initialized with hardware exception protection");
         return true;
     } catch (...) {
         return false;

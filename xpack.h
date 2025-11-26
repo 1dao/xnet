@@ -91,6 +91,7 @@
 #include <vector>
 #include <typeinfo>
 #include <string>
+#include <optional>
 
 // =====================================================================================
 //                                 公共数据结构定义
@@ -176,6 +177,19 @@ template<>
 inline XPackBuff xpack_cast<XPackBuff>(VariantType& var) {
     if (XPackBuff* val = std::get_if<XPackBuff>(&var)) return std::move(*val);
     throw std::runtime_error("Type mismatch when extracting XPackBuff from variant");
+}
+
+template<typename T>
+std::optional<T> xpack_cast_optional(const std::vector<VariantType>& vec, size_t index) {
+    if (index >= vec.size()) {
+        return std::nullopt;
+    }
+
+    try {
+        return xpack_cast<T>(vec[index]);
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 template<typename... Args>

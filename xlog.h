@@ -7,6 +7,10 @@ extern "C" {
 #include <stdarg.h>
 #include "fmacros.h"
 
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
 
 #define XLOG_DEBUG 1
 #define XLOG_INFO  2
@@ -20,6 +24,26 @@ extern "C" {
 
 typedef void (*xlog_hook)(int level, const char* tag, const char* message, size_t len, void* userdata);
 
+#ifdef LUAT_USE_LOG2
+	#define xlog_err(format, ...)	xlog_printf(XLOG_ERROR, "[ERROR]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
+	#define xlog_warn(format, ...)	xlog_printf(XLOG_WARN,  "[WARN]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
+	#define xlog_info(format, ...)	xlog_printf(XLOG_INFO,  "[INFO]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
+	#define xlog_debug(format, ...) xlog_printf(XLOG_DEBUG, "[DEBUG]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
+	void xlog_printf(int level, const char* _fmt, ...);
+#else
+	void xlog_log(int level, const char* tag, const char* _fmt, ...);
+
+	#define xlog_err(format, ...)	xlog_log(XLOG_ERROR, XLOG_TAG, format, ##__VA_ARGS__)
+	#define xlog_warn(format, ...)	xlog_log(XLOG_WARN, XLOG_TAG, format, ##__VA_ARGS__)
+	#define xlog_info(format, ...)	xlog_log(XLOG_INFO, XLOG_TAG, format, ##__VA_ARGS__)
+	#define xlog_debug(format, ...)	xlog_log(XLOG_DEBUG, XLOG_TAG, format, ##__VA_ARGS__)
+	#define xlog_dump(ptr,len) xlog_dump(XLOG_TAG, ptr, len)
+
+	void xlog_dump_all(const char* tag, void* ptr, size_t len);
+#endif
+
+bool xlog_init(int level, bool file_enable, bool colo_enable, const char* file_path);
+void xlog_uninit(void);
 void xlog_nprint(char* s, size_t l);
 void xlog_write(char* s, size_t l);
 void xlog_set_uart_port(int port);
@@ -33,7 +57,6 @@ const char* xlog_get_file_path(void);
 void xlog_set_file_enable(int enable);
 int xlog_get_file_enable(void);
 void xlog_rotate_file(void);
-void xlog_safe_close(void);
 
 void xlog_set_hook(xlog_hook hook, void* userdata);
 void xlog_set_show_timestamp(int enable);
@@ -56,24 +79,6 @@ int xfs_fsync(void* stream);
 // 字符串格式化函数声明
 int vsnprintf_(char* str, size_t size, const char* format, va_list ap);
 int sprintf_(char* str, const char* format, ...);
-
-#ifdef LUAT_USE_LOG2
-	#define xlog_err(format, ...)	xlog_printf(XLOG_ERROR, "[ERROR]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
-	#define xlog_warn(format, ...)	xlog_printf(XLOG_WARN,  "[WARN]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
-	#define xlog_info(format, ...)	xlog_printf(XLOG_INFO,  "[INFO]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
-	#define xlog_debug(format, ...) xlog_printf(XLOG_DEBUG, "[DEBUG]" XLOG_TAG " " format "\n", ##__VA_ARGS__)
-	void xlog_printf(int level, const char* _fmt, ...);
-#else
-	void xlog_log(int level, const char* tag, const char* _fmt, ...);
-
-	#define xlog_err(format, ...)	xlog_log(XLOG_ERROR, XLOG_TAG, format, ##__VA_ARGS__)
-	#define xlog_warn(format, ...)	xlog_log(XLOG_WARN, XLOG_TAG, format, ##__VA_ARGS__)
-	#define xlog_info(format, ...)	xlog_log(XLOG_INFO, XLOG_TAG, format, ##__VA_ARGS__)
-	#define xlog_debug(format, ...)	xlog_log(XLOG_DEBUG, XLOG_TAG, format, ##__VA_ARGS__)
-	#define xlog_dump(ptr,len) xlog_dump(XLOG_TAG, ptr, len)
-
-	void xlog_dump_all(const char* tag, void* ptr, size_t len);
-#endif
 
 #ifdef __cplusplus
 }

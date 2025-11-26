@@ -32,6 +32,62 @@ static char      xlog_thread_name[32] = "main";
 
 #define LOGLOG_SIZE 1024
 
+static inline void xlog_init_mutex(void) {
+    if (!xlog_inited) {
+        xnet_mutex_adp_init(&xlog_mutex);
+        xlog_inited = TRUE;
+    }
+}
+
+bool xlog_init(int level, bool file_enable, bool colo_enable, const char* file_path) {
+    if (xlog_inited) {
+        return true;
+    }
+
+    // 初始化互斥锁
+    xnet_mutex_adp_init(&xlog_mutex);
+
+    // 设置日志级别
+    xlog_level_cur = level;
+
+    // 设置文件日志
+    if (file_path) {
+        strncpy(xlog_file_path, file_path, sizeof(xlog_file_path) - 1);
+        xlog_file_path[sizeof(xlog_file_path) - 1] = '\0';
+    }
+
+    xlog_file_enable = file_enable ? 1 : 0;
+
+    // 设置默认值
+    xlog_show_timestamp = 1;
+    xlog_show_color = colo_enable ? 1 : 0;
+    xlog_show_thread_name = 0;
+    strcpy(xlog_thread_name, "main");
+    xlog_inited = TRUE;
+
+    xlog_info("xlog system initialized, level=%d, file=%s", level,
+              file_enable ? file_path : "disabled");
+
+    return true;
+}
+
+void xlog_uninit(void) {
+    if (!xlog_inited) {
+        return;
+    }
+
+    xlog_info("xlog system uninitializing");
+    xnet_mutex_adp_lock(&xlog_mutex);
+    xlog_inited = FALSE;
+
+    if (xlog_file_handle) {
+        xfs_fclose(xlog_file_handle);
+        xlog_file_handle = NULL;
+    }
+
+    xnet_mutex_adp_destroy(&xlog_mutex);
+}
+
 // ============================================================================
 // 文件系统API实现
 // ============================================================================
@@ -142,14 +198,6 @@ void luat_cmux_write(int channel, int frame_type, char* data, size_t len) {
     fflush(stderr);
 }
 #endif
-
-// 初始化互斥锁
-static inline void xlog_init_mutex(void) {
-    if (!xlog_inited) {
-        xnet_mutex_adp_init(&xlog_mutex);
-        xlog_inited = TRUE;
-    }
-}
 
 void xlog_set_uart_port(int port) {
     xlog_uart_port = port;
@@ -593,18 +641,4 @@ void xlog_dump_all(const char* tag, void* ptr, size_t len) {
     }
 
     xnet_mutex_adp_unlock(&xlog_mutex);
-}
-
-void xlog_safe_close(void) {
-    if (xlog_inited) {
-        xnet_mutex_adp_lock(&xlog_mutex);
-        xlog_inited = FALSE;
-
-        if (xlog_file_handle) {
-            xfs_fclose(xlog_file_handle);
-            xlog_file_handle = NULL;
-        }
-
-        xnet_mutex_adp_destroy(&xlog_mutex);
-    }
 }
