@@ -27,7 +27,7 @@
  *        T xpack_variant_data(VariantType& var);
  *        // 辅助函数，用于安全地从 VariantType 中提取指定类型的数据。
  *    3. C++ 标准:17
- * 
+ *
  * -------------------------------------------------------------------------------------
  *
  * 使用示例:
@@ -108,7 +108,7 @@ struct XPackBuff {
     }
     XPackBuff(const char* cstr) {
         if (!cstr) { len = 0; return; }
-        len = static_cast<int>(std::strlen(cstr));
+        len = static_cast<int>(std::strlen(cstr)+1);
         if (len > 0) {
             data = std::make_unique<char[]>(len);
             std::memcpy(data.get(), cstr, len);
@@ -220,6 +220,19 @@ TypeEnum get_type_tag() {
     else throw std::invalid_argument("Unsupported type (get_type_tag)");
 }
 
+inline int calculate_element_size(const char* str) {
+    if (str) {
+        int len = static_cast<int>(std::strlen(str)) + 1;
+        return 1 + sizeof(int) + len;  // type_tag + length + data
+    } else {
+        return 1 + sizeof(int);  // type_tag + length(0)
+    }
+}
+
+inline int calculate_element_size(char* str) {
+    return calculate_element_size(const_cast<const char*>(str));
+}
+
 inline int calculate_element_size(const XPackBuff& arg) {
     return 1 + sizeof(int) + arg.len;
 }
@@ -257,12 +270,33 @@ inline void pack_buffer(char* buffer, int& offset, bool system_big, bool target_
     }
 }
 
+inline void pack_string(char* buffer, int& offset, bool system_big, bool target_big, const char* str) {
+    // 转换为 XPackBuff 处理
+    if (str) {
+        XPackBuff buff(str);  // 使用 XPackBuff 的字符串构造函数
+        pack_buffer(buffer, offset, system_big, target_big, buff);
+    } else {
+        // 空字符串
+        XPackBuff buff;
+        pack_buffer(buffer, offset, system_big, target_big, buff);
+    }
+}
+
+inline void pack_data(char* buffer, int& offset, bool system_big, bool target_big, const char* value) {
+    pack_string(buffer, offset, system_big, target_big, value);
+}
+
+inline void pack_data(char* buffer, int& offset, bool system_big, bool target_big, char* value) {
+    pack_string(buffer, offset, system_big, target_big, value);
+}
+
 inline void pack_data(char* buffer, int& offset, bool system_big, bool target_big, const XPackBuff& value) {
     pack_buffer(buffer, offset, system_big, target_big, value);
 }
 
 template<typename T>
-typename std::enable_if<!std::is_same<T, XPackBuff>::value>::type
+typename std::enable_if<!std::is_same<T, XPackBuff>::value
+                     && !std::is_pointer<T>::value>::type
 pack_data(char* buffer, int& offset, bool system_big, bool target_big, const T& value) {
     pack_basic<T>(buffer, offset, system_big, target_big, value);
 }

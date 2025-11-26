@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include "xlog.h"
 
 // 辅助函数
 std::string xpack_buff_to_string(const XPackBuff& buff) {
@@ -88,7 +89,7 @@ int client_close_handler(xChannel* channel, char* buf, int len) {
 
 // 简化后的协程函数写法
 xTask comprehensive_test_run_task(void* arg) {
-    std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
+    std::cout << "1111 Comprehensive Test Coroutine Started 1111" << std::endl;
     xChannel* g_client_channel = static_cast<xChannel*>(arg);
     if (!g_client_channel) {
         std::cout << "No connection to server" << std::endl;
@@ -96,16 +97,17 @@ xTask comprehensive_test_run_task(void* arg) {
     }
 
     // 测试1: 基本运算
-    std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
+    std::cout << "\n1111 Testing Basic Arithmetic 1111" << std::endl;
     for (int i = 1; i <= 3; i++) {
         std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
-        std::cout<< "rpc resp, pt=" << i<<", resp v1:" << xpack_variant_data<int>(result[0]) 
+        std::cout<< "1111 rpc resp, pt=" << i<<", resp v1:" << xpack_variant_data<int>(result[0])
             << ", resp v2:" << xpack_variant_data<int>(result[1])
             << ", resp v3:" << xpack_buff_to_string(xpack_variant_data<XPackBuff>(result[3])) << std::endl;
+        // 让协程睡一秒
     }
 
     // 测试2: 字符串处理
-    std::cout << "\n--- Testing String Processing ---" << std::endl;
+    std::cout << "\n1111 Testing String Processing ---" << std::endl;
     std::vector<std::string> test_strings = { "test1", "test2", "test3" };
     for (const auto& str : test_strings) {
         XPackBuff str_buff = string_to_xpack_buff(str);
@@ -114,14 +116,67 @@ xTask comprehensive_test_run_task(void* arg) {
             << "' (code: " << xpack_variant_data<int>(result[1]) << ")" << std::endl;
     }
     // 测试3: 错误处理
-    std::cout << "\n--- Testing Error Handling ---" << std::endl;
+    std::cout << "\n1111 Testing Error Handling ---" << std::endl;
 
     // // 测试无效协议
     // std::vector<VariantType> error_result = co_yield xrpc_pcall(g_client_channel, 999, 1, 2);
     // std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
 
 
-    std::cout << "\n=== Comprehensive Test Coroutine Finished ===" << std::endl;
+    std::cout << "\n1111 Comprehensive Test Coroutine Finished ===" << std::endl;
+    co_return;
+}
+xTask comprehensive_test_run_task1(void* arg) {
+    std::cout << "2222 Comprehensive Test Coroutine Started +++++" << std::endl;
+    xChannel* g_client_channel = static_cast<xChannel*>(arg);
+    if (!g_client_channel) {
+        std::cout << "No connection to server" << std::endl;
+        co_return;
+    }
+
+    // 测试1: 基本运算
+    std::cout << "\n2222  Testing Basic Arithmetic +++++ " << std::endl;
+    for (int i = 1; i <= 3; i++) {
+        std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
+        std::cout << "2222 rpc resp, pt=" << i << ", resp v1:" << xpack_variant_data<int>(result[0])
+            << ", resp v2:" << xpack_variant_data<int>(result[1])
+            << ", resp v3:" << xpack_buff_to_string(xpack_variant_data<XPackBuff>(result[3])) << std::endl;
+    }
+
+    // 测试2: 字符串处理
+    std::cout << "\n2222 Testing String Processing +++++" << std::endl;
+    std::vector<std::string> test_strings = { "test1", "test2", "test3" };
+    for (const auto& str : test_strings) {
+        XPackBuff str_buff = string_to_xpack_buff(str);
+        std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, 2, str_buff);
+        std::cout << "2222 String test: '" << str << "' -> '" << xpack_buff_to_string(xpack_variant_data<XPackBuff>(result[0]))
+            << "' (code: " << xpack_variant_data<int>(result[1]) << ")" << std::endl;
+    }
+    // 测试3: 错误处理
+    std::cout << "\n2222 Testing Error Handling +++++" << std::endl;
+
+    // // 测试无效协议
+    // std::vector<VariantType> error_result = co_yield xrpc_pcall(g_client_channel, 999, 1, 2);
+    // std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
+
+
+    std::cout << "\n2222 Comprehensive Test Coroutine Finished +++++" << std::endl;
+    co_return;
+}
+
+xTask comprehensive_test_run_task3(void* arg) {
+    xChannel* g_client_channel = static_cast<xChannel*>(arg);
+
+    xlog_warn("comprehensive_test_run_task3, donothing");
+    co_return;
+}
+
+xTask comprehensive_test_run_task4(void* arg) {
+    xChannel* g_client_channel = static_cast<xChannel*>(arg);
+
+    xlog_warn("comprehensive_test_run_task4 start");
+    std::vector<VariantType> result = co_yield xrpc_pcall(g_client_channel, 1, 333, 7777, XPackBuff("@fdadfa=="));
+    xlog_warn("comprehensive_test_run_task4 resp: ", xpack_variant_data<int>(result[0]));
     co_return;
 }
 
@@ -152,7 +207,10 @@ void client_main() {
     //int str_coro_id = coroutine_run(string_coroutine, nullptr);
 
     //std::cout << "Started coroutines: Add=" << add_coro_id << ", String=" << "2222" << std::endl;
-    coroutine_run_task(comprehensive_test_run_task, channel);
+    coroutine_run(comprehensive_test_run_task, channel);
+    coroutine_run(comprehensive_test_run_task1, channel);
+    coroutine_run(comprehensive_test_run_task3, channel);
+    coroutine_run(comprehensive_test_run_task4, channel);
 
     auto start_time = std::chrono::steady_clock::now();
     // while (coroutine_get_active_count() > 0 || std::chrono::steady_clock::now() - start_time < std::chrono::seconds(10000)) {
