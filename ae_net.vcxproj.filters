@@ -29,9 +29,9 @@
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xrpc.h" />
     <ClInclude Include="xpack.h" />
-    <ClInclude Include="xrpc.inl" />
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xhandle.h" />
+    <ClInclude Include="xerrno.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="xchannel.inl" />

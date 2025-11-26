@@ -4,6 +4,7 @@
 #include <vector>
 #include "xpack.h"
 #include "xchannel.h"
+#include "xerrno.h"
 
 // 定义协议处理函数类型
 typedef int (*ProtocolPostHandler)(xChannel* s, std::vector<VariantType>& args);

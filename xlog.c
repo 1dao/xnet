@@ -17,7 +17,7 @@ static void*   xlog_file_handle = NULL;
 static xlog_hook xlog_hook_func = NULL;
 static void*     xlog_hook_userdata = NULL;
 static int       xlog_show_timestamp = 1;
-static int       xlog_show_color = 0;
+static int       xlog_show_color = 1;
 static int       xlog_show_thread_name = 0;
 static char      xlog_thread_name[32] = "main";
 

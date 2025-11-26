@@ -144,12 +144,12 @@
     <ClInclude Include="anet.h" />
     <ClInclude Include="xcoroutine.h" />
     <ClInclude Include="fmacros.h" />
+    <ClInclude Include="xerrno.h" />
     <ClInclude Include="xhandle.h" />
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xpack.h" />
     <ClInclude Include="xrpc.h" />
-    <ClInclude Include="xrpc.inl" />
     <ClInclude Include="zmalloc.h" />
   </ItemGroup>
   <ItemGroup>

@@ -1,4 +1,4 @@
-﻿#include "ae.h"
+#include "ae.h"
 #include "xchannel.h"
 #include "xpack.h"
 #include "xcoroutine.h"
@@ -19,194 +19,192 @@ XPackBuff string_to_xpack_buff(const std::string& str) {
     return XPackBuff(str.c_str(), static_cast<int>(str.length()));
 }
 
-//// 客户端协议处理函数
-//int client_packet_handler(xChannel* channel, char* buf, int len) {
-//    return xrpc_resp_blp4(channel) ? len : -1;
-//}
-
 // 客户端连接关闭处理函数
 int client_close_handler(xChannel* channel, char* buf, int len) {
     std::cout << "Connection to server closed" << std::endl;
     return 0;
 }
 
-//// 综合测试协程
-//void* comprehensive_test_coroutine(void* arg) {
-//    return new xTask([arg]() -> xTask {
-//        std::cout << "=== Comprehensive Test Coroutine Started ===" << std::endl;
-//		xChannel* g_client_channel = static_cast<xChannel*>(arg);
-//        if (!g_client_channel) {
-//            std::cout << "No connection to server" << std::endl;
-//            co_return;
-//        }
-//
-//        // 测试1: 基本运算
-//        std::cout << "\n--- Testing Basic Arithmetic ---" << std::endl;
-//        for (int i = 1; i <= 3; i++) {
-//
-//            std::vector<VariantType> result = co_await xrpc_pcall(g_client_channel, 1, i * 5, i * 3, XPackBuff("adfald1111"));
-//            if (result.success()) {
-//                auto unpacked = xpack_unpack(result.get(), result.len);
-//                if (unpacked.size() >= 2) {
-//                    int sum = xpack_cast<int>(unpacked[0]);
-//                    std::string status = xpack_buff_to_string(xpack_cast<XPackBuff>(unpacked[1]));
-//                    std::cout << "Test " << i << ": " << (i * 5) << " + " << (i * 3)
-//                        << " = " << sum << " (" << status << ")" << std::endl;
-//                }
-//            }
-//        }
-//
-//        // 测试2: 字符串处理
-//        std::cout << "\n--- Testing String Processing ---" << std::endl;
-//        std::vector<std::string> test_strings = { "test1", "test2", "test3" };
-//        for (const auto& str : test_strings) {
-//            XPackBuff str_buff = string_to_xpack_buff(str);
-//            XPackBuff result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
-//            if (result.success()) {
-//                auto unpacked = xpack_unpack(result.get(), result.len);
-//                if (unpacked.size() >= 2) {
-//                    std::string processed = xpack_buff_to_string(xpack_cast<XPackBuff>(unpacked[0]));
-//                    int code = xpack_cast<int>(unpacked[1]);
-//                    std::cout << "String test: '" << str << "' -> '" << processed
-//                        << "' (code: " << code << ")" << std::endl;
-//                }
-//            }
-//        }
-//
-//        // 测试3: 错误处理
-//        std::cout << "\n--- Testing Error Handling ---" << std::endl;
-//
-//        // 测试无效协议
-//        XPackBuff error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
-//        if (!error_result.success()) {
-//            std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
-//        }
-//
-//        std::cout << "\n=== Comprehensive Test Coroutine Finished ===" << std::endl;
-//        co_return;
-//        }());
-//}
+// 检查 RPC 结果的辅助宏/函数
+#define RPC_CHECK(result, msg) \
+    do { \
+        if (result.empty()) { \
+            xlog_err("%s: empty result", msg); \
+            co_return; \
+        } \
+        int _retcode = std::get<int>(result[0]); \
+        if (_retcode != 0) { \
+            xlog_err("%s failed, retcode: %d", msg, _retcode); \
+            co_return; \
+        } \
+    } while(0)
 
-// 简化后的协程函数写法
-xTask comprehensive_test_run_task(void* arg) {
-    std::cout << "1111 Comprehensive Test Coroutine Started 1111" << std::endl;
-    xChannel* g_client_channel = static_cast<xChannel*>(arg);
-    if (!g_client_channel) {
-        std::cout << "No connection to server" << std::endl;
+// 获取 retcode
+inline int rpc_retcode(const std::vector<VariantType>& result) {
+    if (result.empty()) return -999;
+    return std::get<int>(result[0]);
+}
+
+// 检查是否成功
+inline bool rpc_ok(const std::vector<VariantType>& result) {
+    return !result.empty() && std::get<int>(result[0]) == 0;
+}
+
+//=============================================================================
+// 测试用例 1: 基本 RPC 调用测试
+//=============================================================================
+xTask test_basic_rpc(void* arg) {
+    xChannel* channel = static_cast<xChannel*>(arg);
+    xlog_info("=== Test 1: Basic RPC Call ===");
+
+    // 调用协议1
+    auto result = co_await xrpc_pcall(channel, 1, 100, 200, XPackBuff("hello"));
+
+    // 检查结果
+    int retcode = rpc_retcode(result);
+    if (retcode != 0) {
+        xlog_err("RPC failed, retcode: %d", retcode);
         co_return;
     }
 
-    // 测试1: 基本运算
-    std::cout << "\n1111 Testing Basic Arithmetic 1111" << std::endl;
+    // 解析返回数据（从 index 1 开始）
+    // result[0] = retcode
+    // result[1] = 第一个返回值
+    // result[2] = 第二个返回值
+    // ...
+    xlog_info("RPC success!");
+    xlog_info("  retcode: %d", retcode);
+    xlog_info("  data[0]: %d", xpack_cast<int>(result[1]));
+    xlog_info("  data[1]: %d", xpack_cast<int>(result[2]));
+    xlog_info("  data[2]: %d", xpack_cast<int>(result[3]));
+    xlog_info("  data[3]: %s", xpack_buff_to_string(xpack_cast<XPackBuff>(result[4])).c_str());
+
+    xlog_info("=== Test 1 Completed ===\n");
+    co_return;
+}
+
+//=============================================================================
+// 测试用例 2: 多次 RPC 调用测试
+//=============================================================================
+xTask test_multiple_rpc(void* arg) {
+    xChannel* channel = static_cast<xChannel*>(arg);
+    xlog_info("=== Test 2: Multiple RPC Calls ===");
+
     for (int i = 1; i <= 3; i++) {
-        auto result = co_await xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
-        std::cout<< "1111 rpc resp, pt=" << i<<", resp v1:" << xpack_cast<int>(result[0])
-            << ", resp v2:" << xpack_cast<int>(result[1])
-            << ", resp v3:" << xpack_buff_to_string(xpack_cast<XPackBuff>(result[3])) << std::endl;
-        // 让协程睡一秒
+        xlog_info("--- Call %d ---", i);
+
+        auto result = co_await xrpc_pcall(channel, 1, i * 10, i * 20, XPackBuff("test"));
+
+        if (!rpc_ok(result)) {
+            xlog_err("Call %d failed, retcode: %d", i, rpc_retcode(result));
+            continue;
+        }
+
+        xlog_info("Call %d success: v1=%d, v2=%d",
+                  i,
+                  xpack_cast<int>(result[1]),
+                  xpack_cast<int>(result[2]));
     }
 
-    // 测试2: 字符串处理
-    std::cout << "\n1111 Testing String Processing ---" << std::endl;
-    std::vector<std::string> test_strings = { "test1", "test2", "test3" };
+    xlog_info("=== Test 2 Completed ===\n");
+    co_return;
+}
+
+//=============================================================================
+// 测试用例 3: 错误处理测试
+//=============================================================================
+xTask test_error_handling(void* arg) {
+    xChannel* channel = static_cast<xChannel*>(arg);
+    xlog_info("=== Test 3: Error Handling ===");
+
+    // 调用不存在的协议
+    xlog_info("--- Testing invalid protocol ---");
+    auto result = co_await xrpc_pcall(channel, 999, 1, 2);
+
+    int retcode = rpc_retcode(result);
+    if (retcode != 0) {
+        xlog_info("Expected error received, retcode: %d", retcode);
+    } else {
+        xlog_err("Error test failed: expected error but got success");
+    }
+
+    xlog_info("=== Test 3 Completed ===\n");
+    co_return;
+}
+
+//=============================================================================
+// 测试用例 4: 字符串处理测试
+//=============================================================================
+xTask test_string_processing(void* arg) {
+    xChannel* channel = static_cast<xChannel*>(arg);
+    xlog_info("=== Test 4: String Processing ===");
+
+    std::vector<std::string> test_strings = {"hello", "world", "test123"};
+
     for (const auto& str : test_strings) {
-        XPackBuff str_buff = string_to_xpack_buff(str);
-        auto result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
-        std::cout << "String test: '" << str << "' -> '" << xpack_buff_to_string(xpack_cast<XPackBuff>(result[0]))
-            << "' (code: " << xpack_cast<int>(result[1]) << ")" << std::endl;
-    }
-    // 测试3: 错误处理
-    std::cout << "\n1111 Testing Error Handling ---" << std::endl;
+        auto result = co_await xrpc_pcall(channel, 2, 0, 0, XPackBuff(str.c_str()));
 
-    // // 测试无效协议
-    // std::vector<VariantType> error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
-    // std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
+        if (!rpc_ok(result)) {
+            xlog_err("String test failed for '%s', retcode: %d",
+                     str.c_str(), rpc_retcode(result));
+            continue;
+        }
 
-
-    std::cout << "\n1111 Comprehensive Test Coroutine Finished ===" << std::endl;
-    co_return;
-}
-xTask comprehensive_test_run_task1(void* arg) {
-    std::cout << "2222 Comprehensive Test Coroutine Started +++++" << std::endl;
-    xChannel* g_client_channel = static_cast<xChannel*>(arg);
-    if (!g_client_channel) {
-        std::cout << "No connection to server" << std::endl;
-        co_return;
+        xlog_info("String '%s' processed successfully", str.c_str());
+        if (result.size() > 4) {
+            xlog_info("  Response: %s",
+                      xpack_buff_to_string(xpack_cast<XPackBuff>(result[4])).c_str());
+        }
     }
 
-    // 测试1: 基本运算
-    std::cout << "\n2222  Testing Basic Arithmetic +++++ " << std::endl;
-    for (int i = 1; i <= 3; i++) {
-        auto result = co_await xrpc_pcall(g_client_channel, i, i * 5, i * 3, XPackBuff("@fdadfa=="));
-        std::cout << "2222 rpc resp, pt=" << i << ", resp v1:" << xpack_cast<int>(result[0])
-            << ", resp v2:" << xpack_cast<int>(result[1])
-            << ", resp v3:" << xpack_buff_to_string(xpack_cast<XPackBuff>(result[3])) << std::endl;
-    }
-
-    // 测试2: 字符串处理
-    std::cout << "\n2222 Testing String Processing +++++" << std::endl;
-    std::vector<std::string> test_strings = { "test1", "test2", "test3" };
-    for (const auto& str : test_strings) {
-        XPackBuff str_buff = string_to_xpack_buff(str);
-        auto result = co_await xrpc_pcall(g_client_channel, 2, str_buff);
-        std::cout << "2222 String test: '" << str << "' -> '" << xpack_buff_to_string(xpack_cast<XPackBuff>(result[0]))
-            << "' (code: " << xpack_cast<int>(result[1]) << ")" << std::endl;
-    }
-    // 测试3: 错误处理
-    std::cout << "\n2222 Testing Error Handling +++++" << std::endl;
-
-    // // 测试无效协议
-    // std::vector<VariantType> error_result = co_await xrpc_pcall(g_client_channel, 999, 1, 2);
-    // std::cout << "Error test passed: Got expected error code " << error_result.error_code() << std::endl;
-
-
-    std::cout << "\n2222 Comprehensive Test Coroutine Finished +++++" << std::endl;
+    xlog_info("=== Test 4 Completed ===\n");
     co_return;
 }
 
-xTask comprehensive_test_run_task3(void* arg) {
-    xChannel* g_client_channel = static_cast<xChannel*>(arg);
+//=============================================================================
+// 测试用例 5: 综合测试
+//=============================================================================
+xTask test_comprehensive(void* arg) {
+    xChannel* channel = static_cast<xChannel*>(arg);
+    xlog_info("=== Test 5: Comprehensive Test ===");
 
-    xlog_warn("comprehensive_test_run_task3, donothing");
+    // 第一次 RPC 调用
+    xlog_info("--- First RPC call ---");
+    auto result1 = co_await xrpc_pcall(channel, 1, 333, 7777, XPackBuff("first"));
+
+    if (!rpc_ok(result1)) {
+        xlog_err("First RPC failed, retcode: %d", rpc_retcode(result1));
+        co_return;
+    }
+    xlog_info("First RPC success, data[0]: %d", xpack_cast<int>(result1[1]));
+
+    // 第二次 RPC 调用（测试同一协程内多次调用）
+    xlog_info("--- Second RPC call ---");
+    auto result2 = co_await xrpc_pcall(channel, 1, 666, 888, XPackBuff("second"));
+
+    if (!rpc_ok(result2)) {
+        xlog_err("Second RPC failed, retcode: %d", rpc_retcode(result2));
+        co_return;
+    }
+    xlog_info("Second RPC success, data[0]: %d", xpack_cast<int>(result2[1]));
+
+    // 第三次调用不同协议
+    xlog_info("--- Third RPC call (different protocol) ---");
+    auto result3 = co_await xrpc_pcall(channel, 2, 111, 222, XPackBuff("third"));
+
+    if (!rpc_ok(result3)) {
+        xlog_err("Third RPC failed, retcode: %d", rpc_retcode(result3));
+        co_return;
+    }
+    xlog_info("Third RPC success");
+
+    xlog_info("=== Test 5 Completed ===\n");
     co_return;
 }
 
-xTask comprehensive_test_run_task4(void* arg) {
-    xChannel* g_client_channel = static_cast<xChannel*>(arg);
-
-    xlog_warn("comprehensive_test_run_task4 start");
-    auto result1 = co_await xrpc_pcall(g_client_channel, 1, 333, 7777, XPackBuff("@fdadfa=="));
-
-    if (result1.empty()) {
-        xlog_err("RPC failed: empty result");
-        co_return;
-    }
-
-    // 检查错误码（第一个元素）
-    int err = std::get<int>(result1[0]);
-    if (err != 0) {
-        xlog_err("RPC error: %d", err);
-        co_return;
-    }
-    xlog_warn("comprehensive_test_run_task4 resp1:%d ", xpack_cast<int>(result1[0]));
-
-    auto result2 = co_await xrpc_pcall(g_client_channel, 1, 666, 888, XPackBuff("@fdadfa=="));
-    if (result1.empty()) {
-        xlog_err("RPC failed: empty result");
-        co_return;
-    }
-
-    // 检查错误码（第一个元素）
-    int err = std::get<int>(result1[0]);
-    if (err != 0) {
-        xlog_err("RPC error: %d", err);
-        co_return;
-    }
-    xlog_warn("comprehensive_test_run_task4 resp2: %d", xpack_cast<int>(result2[0]));
-    co_return;
-}
-
-// 客户端主函数
+//=============================================================================
+// 主函数
+//=============================================================================
 void client_main() {
     aeEventLoop* el = aeCreateEventLoop();
     if (!el) {
@@ -227,24 +225,22 @@ void client_main() {
         return;
     }
 
-    std::cout << "Connected to RPC server successfully" << std::endl;
+    std::cout << "Connected to RPC server successfully\n" << std::endl;
 
-    //int add_coro_id = coroutine_run(comprehensive_test_coroutine, channel);
-    //int str_coro_id = coroutine_run(string_coroutine, nullptr);
+    // 运行测试用例
+    coroutine_run(test_basic_rpc, channel);
+    coroutine_run(test_multiple_rpc, channel);
+    coroutine_run(test_error_handling, channel);
+    coroutine_run(test_string_processing, channel);
+    coroutine_run(test_comprehensive, channel);
 
-    //std::cout << "Started coroutines: Add=" << add_coro_id << ", String=" << "2222" << std::endl;
-    coroutine_run(comprehensive_test_run_task, channel);
-    coroutine_run(comprehensive_test_run_task1, channel);
-    coroutine_run(comprehensive_test_run_task3, channel);
-    coroutine_run(comprehensive_test_run_task4, channel);
-
-    auto start_time = std::chrono::steady_clock::now();
-    // while (coroutine_get_active_count() > 0 || std::chrono::steady_clock::now() - start_time < std::chrono::seconds(10000)) {
+    // 事件循环
     while (true) {
         aeFramePoll(el);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
+    coroutine_uninit();
     std::cout << "Client finished" << std::endl;
 }
 
