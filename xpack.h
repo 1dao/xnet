@@ -24,7 +24,7 @@
  *        // 从打包好的数据流中解包，返回一个 VariantType 的向量。
  *
  *      - template<typename T>
- *        T xpack_variant_data(VariantType& var);
+ *        T xpack_cast(VariantType& var);
  *        // 辅助函数，用于安全地从 VariantType 中提取指定类型的数据。
  *    3. C++ 标准:17
  *
@@ -47,9 +47,9 @@
  *       auto unpacked = xpack_unpack(packed.get(), packed.len);
  *
  *       // 4. 提取并使用数据
- *       auto unpacked_i = xpack_variant_data<int>(unpacked[0]);
- *       auto unpacked_f = xpack_variant_data<float>(unpacked[1]);
- *       auto unpacked_buf = xpack_variant_data<XPackBuff>(unpacked[2]);
+ *       auto unpacked_i = xpack_cast<int>(unpacked[0]);
+ *       auto unpacked_f = xpack_cast<float>(unpacked[1]);
+ *       auto unpacked_buf = xpack_cast<XPackBuff>(unpacked[2]);
  *
  *       // 验证类型和值
  *       std::cout << "unpacked_c (类型: " << typeid(unpacked_c).name() << "): " << unpacked_c << std::endl;
@@ -167,13 +167,13 @@ using VariantType = std::variant<
 //                                 公共函数接口声明
 // =====================================================================================
 template<typename T>
-T xpack_variant_data(VariantType& var) {
+T xpack_cast(VariantType& var) {
     if (T* val = std::get_if<T>(&var)) return *val;
     throw std::runtime_error("Type mismatch when extracting variant data");
 }
 
 template<>
-inline XPackBuff xpack_variant_data<XPackBuff>(VariantType& var) {
+inline XPackBuff xpack_cast<XPackBuff>(VariantType& var) {
     if (XPackBuff* val = std::get_if<XPackBuff>(&var)) return std::move(*val);
     throw std::runtime_error("Type mismatch when extracting XPackBuff from variant");
 }

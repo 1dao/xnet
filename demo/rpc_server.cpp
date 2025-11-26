@@ -16,17 +16,17 @@ int server_close_handler(xChannel* channel, char* buf, int len) {
 }
 
 XPackBuff on_pt1(xChannel* s, std::vector<VariantType>& args) {
-    auto arg1 = xpack_variant_data<int>(args[0]);
-    auto arg2 = xpack_variant_data<int>(args[1]);
-    auto arg3 = xpack_variant_data<XPackBuff>(args[2]);
+    auto arg1 = xpack_cast<int>(args[0]);
+    auto arg2 = xpack_cast<int>(args[1]);
+    auto arg3 = xpack_cast<XPackBuff>(args[2]);
     std::cout << "Protocol: " << 1 << ", arg1: " << arg1 << ", arg2: " << arg2 << ", arg3: " << arg3.get() << std::endl;
     return xpack_pack(true, 555, -111, 666, XPackBuff("pt1 success"));
 }
 
 XPackBuff on_pt2(xChannel* s, std::vector<VariantType>& args) {
-    auto arg1 = xpack_variant_data<int>(args[0]);
-    auto arg2 = xpack_variant_data<int>(args[1]);
-    auto arg3 = xpack_variant_data<XPackBuff>(args[2]);
+    auto arg1 = xpack_cast<int>(args[0]);
+    auto arg2 = xpack_cast<int>(args[1]);
+    auto arg3 = xpack_cast<XPackBuff>(args[2]);
     std::cout << "Protocol: " << 2 << ", arg1: " << arg1 << ", arg2: " << arg2 << ", arg3: " << arg3.get() << std::endl;
     return xpack_pack(true, 555, -111, 666, XPackBuff("pt2 success"));
 }
