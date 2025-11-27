@@ -3,6 +3,7 @@
 #include "xthread.h"
 #include "xlog.h"
 #include <cstring>
+#include <string.h>
 
 #ifdef _WIN32
 #include <process.h>
@@ -179,6 +180,14 @@ static void* worker_func(void* arg) {
     tls_set(ctx->id);
 
     xlog_info("Thread[%d:%s] started", ctx->id, ctx->name);
+    // ctx->name 存在实时ctx->name,不存在使用"THR:%d", %d替换线程ID
+    if (ctx->name) {
+        xlog_set_thread_name(ctx->name);
+    } else {
+        char name[32];
+        snprintf(name, sizeof(name), "THR:%d", ctx->id);
+        xlog_set_thread_name(name);
+    }
 
     if (ctx->on_init) ctx->on_init(ctx);
 

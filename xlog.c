@@ -19,7 +19,11 @@ static void*     xlog_hook_userdata = NULL;
 static int       xlog_show_timestamp = 1;
 static int       xlog_show_color = 1;
 static int       xlog_show_thread_name = 0;
-static char      xlog_thread_name[32] = "main";
+#ifdef _WIN32
+    static _declspec(thread) char  xlog_thread_name[32] = "main";
+#else
+    static __thread char           xlog_thread_name[32] = "main";
+#endif
 
 // VT100 颜色代码
 #define XLOG_COLOR_RED     "\033[31m"

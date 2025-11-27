@@ -20,7 +20,7 @@ extern "C" {
 
 #define XLOG_MAX_FILE_SIZE (200 * 1024 * 1024) // 200MB
 #define XLOG_MAX_FILE_COUNT 10 // 最多保留10个日志文件
-#define XLOG_TAG "tag"
+#define XLOG_TAG ""
 
 typedef void (*xlog_hook)(int level, const char* tag, const char* message, size_t len, void* userdata);
 
@@ -37,6 +37,10 @@ typedef void (*xlog_hook)(int level, const char* tag, const char* message, size_
 	#define xlog_warn(format, ...)	xlog_log(XLOG_WARN, XLOG_TAG, format, ##__VA_ARGS__)
 	#define xlog_info(format, ...)	xlog_log(XLOG_INFO, XLOG_TAG, format, ##__VA_ARGS__)
 	#define xlog_debug(format, ...)	xlog_log(XLOG_DEBUG, XLOG_TAG, format, ##__VA_ARGS__)
+	#define xlog_err_tag(tag, format, ...)	xlog_log(XLOG_ERROR, tag, format, ##__VA_ARGS__)
+	#define xlog_warn_tag(tag, format, ...)	xlog_log(XLOG_WARN, tag, format, ##__VA_ARGS__)
+	#define xlog_info_tag(tag, format, ...)	xlog_log(XLOG_INFO, tag, format, ##__VA_ARGS__)
+	#define xlog_debug_tag(tag, format, ...)	xlog_log(XLOG_DEBUG, tag, format, ##__VA_ARGS__)
 	#define xlog_dump(ptr,len) xlog_dump(XLOG_TAG, ptr, len)
 
 	void xlog_dump_all(const char* tag, void* ptr, size_t len);

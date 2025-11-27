@@ -8,6 +8,7 @@
 #include "xpack.h"
 #include "xmutex.h"
 #include "xerrno.h"
+#include "xlog.h"
 
 #ifdef _WIN32
 #include <winsock2.h>

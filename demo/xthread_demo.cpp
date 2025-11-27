@@ -60,7 +60,7 @@ std::vector<VariantType> compute_task(XThreadContext* ctx, std::vector<VariantTy
 // ============================================================================
 
 xTask test_coroutine(void* arg) {
-    xlog_info("[Coroutine] Started");
+    xlog_info_tag("[Coroutine]", "Started");
 
     // Call Redis thread to get data
     {
@@ -68,9 +68,9 @@ xTask test_coroutine(void* arg) {
         //xlog_info("[Coroutine] Sum: %d", sum);
         if (xthread_ok(result)) {
             std::string value = pack_to_str(result[1]);
-            xlog_info("[Coroutine] Redis GET result: %s", value.c_str());
+            xlog_info_tag("[Coroutine] ", "Redis GET result: %s", value.c_str());
         } else {
-            xlog_err("[Coroutine] Redis GET failed: %d", xthread_retcode(result));
+            xlog_err_tag("[Coroutine]", "Redis GET failed: %d", xthread_retcode(result));
         }
     }
 
@@ -80,13 +80,13 @@ xTask test_coroutine(void* arg) {
 
         if (xthread_ok(result)) {
             int sum = xpack_cast<int>(result[1]);
-            xlog_info("[Coroutine] Compute result: %d", sum);
+            xlog_info_tag("[Coroutine]", "Compute result: %d", sum);
         } else {
-            xlog_err("[Coroutine] Compute failed: %d", xthread_retcode(result));
+            xlog_err_tag("[Coroutine]", " Compute failed: %d", xthread_retcode(result));
         }
     }
 
-    xlog_info("[Coroutine] Finished");
+    xlog_info_tag("[Coroutine]", "Finished");
     co_return;
 }
 
@@ -97,7 +97,7 @@ xTask test_coroutine(void* arg) {
 xTask comprehensive_exception_test(void* arg) {
     int test_case = arg ? *(int*)arg : 0;
 
-    xlog_info("[Coroutine] Comprehensive exception test started - Test case: %d", test_case);
+    xlog_info_tag("[Coroutine]", "Comprehensive exception test started - Test case: %d", test_case);
 
     switch (test_case) {
         case 1:  // 内存访问异常
@@ -260,7 +260,7 @@ xTask comprehensive_exception_test(void* arg) {
             break;
     }
 
-    xlog_info("[Coroutine] Exception test case %d completed successfully", test_case);
+    xlog_info_tag("[Coroutine]", "Exception test case %d completed successfully", test_case);
     co_return;
 }
 
@@ -271,6 +271,7 @@ xTask comprehensive_exception_test(void* arg) {
 int main() {
     // Initialize
     xlog_init(XLOG_DEBUG, true, true, nullptr);
+    xlog_set_show_thread_name(true);
     coroutine_init();
     xthread_init();
 
@@ -286,11 +287,11 @@ int main() {
     // Start coroutine
     coroutine_run(test_coroutine, nullptr);
 
-    int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
-    for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
-        coroutine_run(comprehensive_exception_test, &test_cases[i]);
-    }
- 
+    //int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
+    //for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
+    //    coroutine_run(comprehensive_exception_test, &test_cases[i]);
+    //}
+
 
     // Main loop - process callbacks
     while(true) {
