@@ -246,10 +246,53 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
             case 0xC0000374: exception_desc = "STATUS_HEAP_CORRUPTION"; break;
             case 0xC0000409: exception_desc = "STATUS_STACK_BUFFER_OVERRUN"; break;
             case 0xE06D7363: exception_desc = "CPP_EH_EXCEPTION"; break;
+
+            case 0xC000008E: exception_desc = "EXCEPTION_FLT_DIVIDE_BY_ZERO"; break;
+            case 0xC0000090: exception_desc = "EXCEPTION_FLT_INVALID_OPERATION"; break;
+            case 0xC0000091: exception_desc = "EXCEPTION_FLT_OVERFLOW"; break;
+            case 0xC0000092: exception_desc = "EXCEPTION_FLT_UNDERFLOW"; break;
+            case 0xC0000093: exception_desc = "EXCEPTION_FLT_INEXACT_RESULT"; break;
         }
         xlog_err("Exception: 0x%08X (%s)", ExceptionInfo->ExceptionRecord->ExceptionCode, exception_desc);
 
         xlog_err("Exception address: 0x%p", ExceptionInfo->ExceptionRecord->ExceptionAddress);
+
+        // 特殊处理：空指针函数调用
+        if (ExceptionInfo->ExceptionRecord->ExceptionCode == 0xC0000005 &&
+            ExceptionInfo->ExceptionRecord->ExceptionAddress == 0) {
+            xlog_err("*** NULL POINTER FUNCTION CALL DETECTED ***");
+            xlog_err("Attempted to call a function through a null pointer");
+
+            // 尝试获取调用者的堆栈信息
+            xlog_err("Attempting to capture caller stack trace...");
+            void* callstack[64];
+            USHORT frames = CaptureStackBackTrace(1, 64, callstack, NULL);  // 从第1帧开始（跳过当前异常）
+
+            if (frames > 0) {
+                xlog_err("Caller stack trace (%d frames):", frames);
+                for (USHORT i = 0; i < frames && i < 10; i++) {
+                    HMODULE hModule = NULL;
+                    if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                                        (LPCTSTR)callstack[i], &hModule)) {
+                        char modulePath[MAX_PATH];
+                        if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
+                            uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)hModule;
+                            xlog_err("  [%d] 0x%p -> %s + 0x%lx", i, callstack[i], modulePath, offset);
+                        } else {
+                            xlog_err("  [%d] 0x%p", i, callstack[i]);
+                        }
+                    } else {
+                        xlog_err("  [%d] 0x%p", i, callstack[i]);
+                    }
+                }
+            } else {
+                xlog_err("Unable to capture caller stack trace");
+            }
+        } else {
+            // 正常的堆栈跟踪
+            xlog_err("Stack trace:");
+            print_windows_stack_trace(ExceptionInfo);
+        }
 
         // Windows下可以尝试获取模块信息
         HMODULE hModule = NULL;
@@ -295,6 +338,28 @@ static void install_signal_handlers() {
     // Install vectored exception handler for Windows
     SetUnhandledExceptionFilter(global_exception_filter);
     AddVectoredExceptionHandler(1, coroutine_exception_handler);
+}
+
+static void simple_windows_stack_trace() {
+    void* callstack[64];
+    USHORT frames = CaptureStackBackTrace(0, 64, callstack, NULL);
+
+    xlog_err("Stack trace (%d frames):", frames);
+    for (USHORT i = 0; i < frames && i < 10; i++) {
+        HMODULE hModule = NULL;
+        if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                             (LPCTSTR)callstack[i], &hModule)) {
+            char modulePath[MAX_PATH];
+            if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
+                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)hModule;
+                xlog_err("  [%d] 0x%p -> %s + 0x%lx", i, callstack[i], modulePath, offset);
+            } else {
+                xlog_err("  [%d] 0x%p", i, callstack[i]);
+            }
+        } else {
+            xlog_err("  [%d] 0x%p", i, callstack[i]);
+        }
+    }
 }
 #endif
 
@@ -488,13 +553,16 @@ public:
         } else {
             // Hardware exception during coroutine creation
             xlog_err("=== COROUTINE CREATION EXCEPTION ===");
-            xlog_err("Coroutine %d creation crashed with hardware exception", coro_id);
-            xlog_err("Exception signal: %d", creation_lj.sig);
+            xlog_err("*** HW EXCEPTION during coroutine %d creation: signal %d ***",
+                    coro_id, creation_lj.sig);
+
             #ifdef _WIN32
                 xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
+                simple_windows_stack_trace();  // 打印简单堆栈跟踪
             #else
                 xlog_err("Linux signal: %d", creation_lj.sig);
             #endif
+
             xlog_err("=== END CREATION EXCEPTION REPORT ===");
             task = xTask{};
         }
