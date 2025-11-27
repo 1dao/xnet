@@ -21,10 +21,15 @@
 #include <exception>
 
 #include "xpack.h"
+#include "xlog.h"
 
 // Hardware exception protection structure (similar to KSLJ in daemon.c)
 struct xCoroutineLJ {
-    jmp_buf buf;
+    #ifdef _WIN32
+        jmp_buf buf;
+    #else
+        sigjmp_buf buf;  // Linux下使用sigjmp_buf
+    #endif
     void* env;
     int sig;
     bool in_protected_call;
@@ -66,6 +71,7 @@ struct xTask {
         int coroutine_id = 0;
         std::exception_ptr exception_ptr = nullptr;
         int hardware_signal = 0;  // 新增：硬件异常信号
+        bool exception_handled = false;  // 新增：标记异常是否已处理
 
         promise_type() = default;
 
@@ -81,6 +87,7 @@ struct xTask {
 
         void unhandled_exception() {
             exception_ptr = std::current_exception();
+            exception_handled = false;
         }
 
         void return_void() {}
@@ -90,9 +97,52 @@ struct xTask {
             return std::forward<Awaitable>(awaitable);
         }
 
+        // 检查是否有未处理的C++异常
+        bool has_cpp_exception() const {
+            return exception_ptr != nullptr && !exception_handled;
+        }
+
         // 检查是否有硬件异常
         bool has_hardware_exception() const {
             return hardware_signal != 0;
+        }
+
+        // 检查是否有任何异常
+        bool has_any_exception() const {
+            return has_cpp_exception() || has_hardware_exception();
+        }
+
+        // 重新抛出并处理异常
+        void handle_exception() {
+            if (has_cpp_exception()) {
+                try {
+                    std::rethrow_exception(exception_ptr);
+                } catch (const std::bad_variant_access& e) {
+                    // 专门处理 variant 访问异常
+                    xlog_err("Variant access exception in coroutine %d: %s", coroutine_id, e.what());
+                } catch (const std::exception& e) {
+                    xlog_err("C++ exception in coroutine %d: %s", coroutine_id, e.what());
+                } catch (...) {
+                    xlog_err("Unknown C++ exception in coroutine %d", coroutine_id);
+                }
+                exception_handled = true;  // 标记异常已处理
+            }
+        }
+
+        // 获取异常信息
+        std::string get_exception_message() const {
+            if (has_cpp_exception()) {
+                try {
+                    std::rethrow_exception(exception_ptr);
+                } catch (const std::exception& e) {
+                    return std::string("C++ exception: ") + e.what();
+                } catch (...) {
+                    return "Unknown C++ exception";
+                }
+            } else if (has_hardware_exception()) {
+                return std::string("Hardware exception: ") + get_hardware_exception_message();
+            }
+            return "";
         }
 
         // 获取硬件异常信息
@@ -142,29 +192,24 @@ struct xTask {
     bool resume_safe(void* param, xCoroutineLJ* lj);
 
     promise_type& get_promise() { return handle_.promise(); }
-    const promise_type& get_promise() const { return handle_.promise(); }  // Add const version
+    const promise_type& get_promise() const { return handle_.promise(); }
 
-    // 检查是否有任何异常（C++异常或硬件异常）
+    // 检查是否有任何异常
     bool has_any_exception() const {
-        return handle_ && (get_promise().exception_ptr || get_promise().hardware_signal != 0);
+        return handle_ && get_promise().has_any_exception();
     }
 
-    // 获取异常信息（包括硬件异常）
+    // 获取异常信息
     std::string get_exception_message() const {
         if (!handle_) return "";
-        auto& promise = get_promise();
-        if (promise.exception_ptr) {
-            try {
-                std::rethrow_exception(promise.exception_ptr);
-            } catch (const std::exception& e) {
-                return std::string("C++ exception: ") + e.what();
-            } catch (...) {
-                return "Unknown C++ exception";
-            }
-        } else if (promise.hardware_signal != 0) {
-            return std::string("Hardware exception: ") + promise.get_hardware_exception_message();
+        return get_promise().get_exception_message();
+    }
+
+    // 处理异常
+    void handle_exception() {
+        if (handle_) {
+            get_promise().handle_exception();
         }
-        return "";
     }
 };
 

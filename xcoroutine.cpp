@@ -24,43 +24,93 @@ static thread_local xCoroutineLJ* g_current_lj = nullptr;
 
 // Signal handler for Unix/Linux systems
 #ifndef _WIN32
-static void coroutine_signal_handler(int sig) {
+static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
     if (g_current_lj && g_current_lj->in_protected_call) {
         g_current_lj->sig = sig;
-        longjmp(g_current_lj->buf, 1);  // Remove std:: prefix
+
+        // 记录详细的信号信息
+        xlog_err("Hardware signal %d caught in coroutine at address %p",
+                 sig, info->si_addr);
+
+        // 获取调用栈（可选，用于调试）
+        void* callstack[128];
+        int frames = backtrace(callstack, 128);
+        char** strs = backtrace_symbols(callstack, frames);
+        if (strs) {
+            xlog_err("Backtrace (%d frames):", frames);
+            for (int i = 0; i < frames && i < 10; ++i) {  // 只显示前10帧
+                xlog_err("  %s", strs[i]);
+            }
+            free(strs);
+        }
+
+        // 跳转回保护点
+        siglongjmp(g_current_lj->buf, 1);
     } else {
-        // Signal in non-protected call, restore default handling
+        // 非保护调用中的信号，恢复默认处理
+        xlog_err("Signal %d in non-protected context, terminating", sig);
         signal(sig, SIG_DFL);
         raise(sig);
     }
 }
 
-// Install signal handlers for Unix/Linux
+// 安装信号处理器
 static void install_signal_handlers() {
     struct sigaction sa;
-    sa.sa_handler = coroutine_signal_handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART | SA_NODEFER;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;  // 使用SA_SIGINFO获取更多信息
+    sa.sa_sigaction = coroutine_signal_handler;  // 使用sa_sigaction而不是sa_handler
 
-    sigaction(SIGSEGV, &sa, nullptr);
-    sigaction(SIGFPE, &sa, nullptr);
-    sigaction(SIGILL, &sa, nullptr);
-    sigaction(SIGABRT, &sa, nullptr);
-    sigaction(SIGBUS, &sa, nullptr);
-    sigaction(SIGTRAP, &sa, nullptr);
+    // 安装信号处理器
+    sigaction(SIGSEGV, &sa, nullptr);  // 段错误
+    sigaction(SIGFPE, &sa, nullptr);   // 浮点异常/除零
+    sigaction(SIGILL, &sa, nullptr);   // 非法指令
+    sigaction(SIGBUS, &sa, nullptr);   // 总线错误
+    sigaction(SIGTRAP, &sa, nullptr);  // 断点/跟踪陷阱
+    sigaction(SIGABRT, &sa, nullptr);  // 中止信号
+
+    xlog_info("Linux signal handlers installed");
 }
 #else
 // Windows: Use structured exception handling
+static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
+    xlog_err("*** GLOBAL EXCEPTION FILTER: Exception code: 0x%08X ***",
+             ExceptionInfo->ExceptionRecord->ExceptionCode);
+
+    // 如果是访问违例等严重错误，尝试记录并退出
+    switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
+        case EXCEPTION_ACCESS_VIOLATION:
+            xlog_err("Access violation occurred");
+            break;
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:
+            xlog_err("Integer divide by zero");
+            break;
+        case EXCEPTION_STACK_OVERFLOW:
+            xlog_err("Stack overflow");
+            break;
+        default:
+            xlog_err("Unknown exception");
+            break;
+    }
+
+    // 返回 EXCEPTION_EXECUTE_HANDLER 会让程序继续执行到最近的 __except 块
+    // 返回 EXCEPTION_CONTINUE_SEARCH 会让系统继续寻找异常处理器
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo) {
     if (g_current_lj && g_current_lj->in_protected_call) {
         g_current_lj->sig = ExceptionInfo->ExceptionRecord->ExceptionCode;
-        longjmp(g_current_lj->buf, 1);  // Remove std:: prefix
+        xlog_err("Hardware exception caught in coroutine: code 0x%08X",
+                 ExceptionInfo->ExceptionRecord->ExceptionCode);
+        longjmp(g_current_lj->buf, 1);
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
 static void install_signal_handlers() {
     // Install vectored exception handler for Windows
+    SetUnhandledExceptionFilter(global_exception_filter);
     AddVectoredExceptionHandler(1, coroutine_exception_handler);
 }
 #endif
@@ -82,26 +132,51 @@ private:
 
 // Safe resume implementation for xTask
 bool xTask::resume_safe(void* param, xCoroutineLJ* lj) {
-    if (!handle_ || handle_.done()) return false;
+if (!handle_ || handle_.done()) return false;
 
-    // Save current LJ state
-    xCoroutineLJ* old_lj = g_current_lj;
-    g_current_lj = lj;
-    lj->in_protected_call = true;
-    lj->sig = 0;
+   // Save current LJ state
+   xCoroutineLJ* old_lj = g_current_lj;
+   g_current_lj = lj;
+   lj->in_protected_call = true;
+   lj->sig = 0;
 
-    // Use hardware exception protection
-    if (setjmp(lj->buf) == 0) {
-        // Normal execution path
-        handle_.resume();
-    } else {
-        // Hardware exception path - jumped back from exception handler
-        handle_.promise().hardware_signal = lj->sig;
-    }
+   bool success = false;
 
-    lj->in_protected_call = false;
-    g_current_lj = old_lj;
-    return true;
+   // 硬件异常保护
+#ifdef _WIN32
+   if (setjmp(lj->buf) == 0) {
+#else
+   if (sigsetjmp(lj->buf, 1) == 0) {  // Linux下使用sigsetjmp，第二个参数1表示保存信号掩码
+#endif
+       // 正常执行路径
+       try {
+           handle_.resume();
+           success = true;
+       } catch (const std::exception& e) {
+           xlog_err("C++ exception in coroutine %d: %s",
+                    handle_.promise().coroutine_id, e.what());
+           if (!handle_.promise().exception_ptr) {
+               handle_.promise().exception_ptr = std::current_exception();
+           }
+           success = false;
+       } catch (...) {
+           xlog_err("Unknown C++ exception in coroutine %d", handle_.promise().coroutine_id);
+           if (!handle_.promise().exception_ptr) {
+               handle_.promise().exception_ptr = std::current_exception();
+           }
+           success = false;
+       }
+   } else {
+       // 硬件异常路径
+       xlog_err("*** HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ***",
+                handle_.promise().coroutine_id, lj->sig);
+       handle_.promise().hardware_signal = lj->sig;
+       success = false;
+   }
+
+   lj->in_protected_call = false;
+   g_current_lj = old_lj;
+   return success;
 }
 
 // Coroutine manager implementation
@@ -133,7 +208,6 @@ public:
         xnet_mutex_init(&wait_mutex);
 
         // Install hardware exception handlers
-        install_signal_handlers();
     }
 
     ~xCoroService() {
@@ -176,10 +250,15 @@ public:
             bool success = task.resume_safe(param, &lj);
             _co_cid = -1;
 
-            // Check for any type of exception
+            // 检查并处理任何类型的异常
             if (task.has_any_exception()) {
                 std::string error_msg = task.get_exception_message();
-                xlog_err("Coroutine %d exception: %s", coroutine_id, error_msg.c_str());
+                xlog_err("Coroutine %d has exception: %s", coroutine_id, error_msg.c_str());
+
+                // 标记协程为完成状态
+                if (_co_svs) {
+                    _co_svs->remove_coroutine(coroutine_id);
+                }
                 return false;
             }
 
@@ -298,7 +377,69 @@ public:
         }
         return count;
     }
+private:
+    void resume_with_hw_protection(std::coroutine_handle<> handle, int coro_id, const char* context) {
+    if (!handle || handle.done()) return;
 
+        // 创建临时的硬件保护上下文
+        xCoroutineLJ temp_lj;
+        temp_lj.env = nullptr;
+        temp_lj.sig = 0;
+        temp_lj.in_protected_call = true;
+
+        xCoroutineLJ* old_lj = g_current_lj;
+        g_current_lj = &temp_lj;
+        int old_cid = _co_cid;
+        _co_cid = coro_id;
+
+        xlog_info("Safe resuming coroutine %d with HW protection in context: %s", coro_id, context);
+
+        // 硬件异常保护
+#ifdef _WIN32
+        if (setjmp(temp_lj.buf) == 0) {
+#else
+        if (sigsetjmp(temp_lj.buf, 1) == 0) {  // Linux下使用sigsetjmp
+#endif
+            try {
+                handle.resume();
+                xlog_info("Coroutine %d resumed successfully", coro_id);
+            } catch (const std::exception& e) {
+                xlog_err("C++ exception in coroutine %d: %s", coro_id, e.what());
+            } catch (...) {
+                xlog_err("Unknown exception in coroutine %d", coro_id);
+            }
+        } else {
+            // 硬件异常被捕获
+            xlog_err("*** HW EXCEPTION in coroutine %d during %s: signal %d ***",
+                    coro_id, context, temp_lj.sig);
+
+               // 记录Linux特定的信号信息
+   #ifndef _WIN32
+               switch (temp_lj.sig) {
+                   case SIGSEGV:
+                       xlog_err("Segmentation fault in coroutine %d", coro_id);
+                       break;
+                   case SIGFPE:
+                       xlog_err("Floating point exception in coroutine %d", coro_id);
+                       break;
+                   case SIGBUS:
+                       xlog_err("Bus error in coroutine %d", coro_id);
+                       break;
+                   case SIGILL:
+                       xlog_err("Illegal instruction in coroutine %d", coro_id);
+                       break;
+                   default:
+                       xlog_err("Signal %d in coroutine %d", temp_lj.sig, coro_id);
+                       break;
+               }
+   #endif
+           }
+
+           temp_lj.in_protected_call = false;
+           g_current_lj = old_lj;
+           _co_cid = old_cid;
+       }
+public:
     // -------------------- Wait related --------------------
     void register_waiter(uint32_t wait_id, std::coroutine_handle<> h, int coro_id) {
         std::coroutine_handle<> to_resume = nullptr;
@@ -307,16 +448,14 @@ public:
             XMutexGuard lock(&wait_mutex);
             auto& p = wait_map_[wait_id];
             p.handle = h;
-            p.coro_id = coro_id;  // Save coroutine ID
+            p.coro_id = coro_id;
             if (p.done && p.result) {
                 to_resume = p.handle;
                 resume_coro_id = p.coro_id;
             }
         }
         if (to_resume) {
-            _co_cid = resume_coro_id;  // Restore coroutine ID
-            to_resume.resume();
-            _co_cid = -1;
+            resume_with_hw_protection(to_resume, resume_coro_id, "register_waiter");
         }
     }
 
@@ -330,13 +469,11 @@ public:
             p.done = true;
             if (p.handle) {
                 to_resume = p.handle;
-                resume_coro_id = p.coro_id;  // Get coroutine ID
+                resume_coro_id = p.coro_id;
             }
         }
         if (to_resume) {
-            _co_cid = resume_coro_id;  // Restore coroutine ID
-            to_resume.resume();
-            _co_cid = -1;
+            resume_with_hw_protection(to_resume, resume_coro_id, "resume_waiter");
         }
     }
 
@@ -382,7 +519,30 @@ std::vector<VariantType> xAwaiter::await_resume() noexcept {
         return err;
     }
     if (!_co_svs) return {};
-    return _co_svs->take_wait_result(wait_id_);
+
+    // 添加异常保护
+    try {
+        return _co_svs->take_wait_result(wait_id_);
+    } catch (const std::bad_variant_access& e) {
+        xlog_err("Variant access exception in await_resume for coroutine %d: %s", coro_id_, e.what());
+        // 返回错误结果
+        std::vector<VariantType> err;
+        err.emplace_back(-1);  // 错误码
+        err.emplace_back((std::string("Variant access error: ") + e.what()).c_str());
+        return err;
+    } catch (const std::exception& e) {
+        xlog_err("Exception in await_resume for coroutine %d: %s", coro_id_, e.what());
+        std::vector<VariantType> err;
+        err.emplace_back(-1);
+        err.emplace_back((std::string("Exception: ") + e.what()).c_str());
+        return err;
+    } catch (...) {
+        xlog_err("Unknown exception in await_resume for coroutine %d", coro_id_);
+        std::vector<VariantType> err;
+        err.emplace_back(-1);
+        err.emplace_back("Unknown exception");
+        return err;
+    }
 }
 
 // -------------------- External interfaces --------------------
@@ -390,6 +550,7 @@ bool coroutine_init() {
     if (_co_svs) return true;
     try {
         _co_svs = new xCoroService();
+        install_signal_handlers();
         xlog_info("Coroutine system initialized with hardware exception protection");
         return true;
     } catch (...) {
