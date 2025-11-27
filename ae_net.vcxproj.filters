@@ -18,6 +18,7 @@
     <ClCompile Include="xchannel_pdu.cpp" />
     <ClCompile Include="xlog.c" />
     <ClCompile Include="xhandle.cpp" />
+    <ClCompile Include="xthread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ae.h" />
@@ -32,6 +33,7 @@
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xhandle.h" />
     <ClInclude Include="xerrno.h" />
+    <ClInclude Include="xthread.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="xchannel.inl" />

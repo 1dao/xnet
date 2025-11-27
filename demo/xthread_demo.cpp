@@ -62,45 +62,9 @@ std::vector<VariantType> compute_task(XThreadContext* ctx, std::vector<VariantTy
 xTask test_coroutine(void* arg) {
     xlog_info("[Coroutine] Started");
 
-    // 测试段错误
-    if(true)
-    {
-        xlog_info("[Linux Coroutine] Testing segmentation fault...");
-        int* ptr = nullptr;
-        *ptr = 42;  // 这会触发SIGSEGV
-        xlog_info("[Linux Coroutine] This line should not be reached");
-    }
-
-    // Test hardware exception (division by zero)
-    if(false)
-    {
-        int a = 1;
-        int b = 0;
-        xlog_info("[Coroutine] Testing division by zero: %d / %d", a, b);
-        int result = a / b;  // This will trigger hardware exception but be caught
-        xlog_info("[Coroutine] This line should not be reached", result);
-    }
-
     // Call Redis thread to get data
     {
         auto result = co_await xthread_pcall(XTHR_REDIS, redis_get, "user:1001");
-        int a[3] = {};
-        xlog_info("[Coroutine] Testing variant access...%d", a[5]);
-
-        if (true) {
-            int sum = xpack_cast<int>(result[11111]);
-            xlog_info("[Coroutine] Testing variant access exception...", sum);
-        }
-
-        // try {
-        //     // This should throw std::bad_variant_access and be caught by coroutine system
-        //     int sum = xpack_cast<int>(result[11111]);
-        //     xlog_info("[Coroutine] Sum: %d", sum);
-        // } catch (const std::exception& e) {
-        //     // This catch block should not be reached - the exception should be caught by coroutine system
-        //     xlog_err("[Coroutine] Direct catch: %s", e.what());
-        // }
-
         //xlog_info("[Coroutine] Sum: %d", sum);
         if (xthread_ok(result)) {
             std::string value = pack_to_str(result[1]);
@@ -191,20 +155,50 @@ xTask comprehensive_exception_test(void* arg) {
             }
             break;
 
-        case 5:  // 栈溢出（相对安全的测试）
-            xlog_info("=== Testing potential stack overflow ===");
+        case 5:  // 栈溢出（相对安全的测试）--协程不能使用alloca
+            // xlog_info("=== Testing stack overflow ===");
+            // {
+            //     // 使用足够大的栈分配来触发栈溢出
+            //     // Windows默认栈大小通常是1MB，我们分配更多来确保溢出
+            //     const size_t stack_size = 2 * 1024 * 1024;  // 2MB
+            //     char* huge_buffer = (char*)alloca(stack_size);
+
+            //     if (huge_buffer) {
+            //         memset(huge_buffer, 0, stack_size);
+            //         xlog_info("Stack allocation completed, buffer size: %zu", stack_size);
+            //     } else {
+            //         xlog_info("Stack allocation failed (this is expected for stack overflow)");
+            //     }
+            // }
+            // break;
+            xlog_info("=== Testing stack overflow ===");
             {
-                // 使用相对安全的栈分配大小
-                char buffer[32 * 1024];  // 32KB栈分配
-                memset(buffer, 0, sizeof(buffer));
-                xlog_info("Stack allocation completed, buffer size: %zu", sizeof(buffer));
+                // 直接尝试分配远超栈大小的数组
+                const size_t stack_breaker = 64 * 1024 * 1024;  // 64MB - 远超任何合理栈大小
+                char stack_killer[stack_breaker];
+
+                // 强制使用这个数组
+                for (size_t i = 0; i < stack_breaker; i += 4096) {
+                    stack_killer[i] = i & 0xFF;
+                }
+
+                volatile int result = 0;
+                for (size_t i = 0; i < stack_breaker; i += 1024 * 1024) {
+                    result += stack_killer[i];
+                }
+                (void)result;
+
+                xlog_info("Stack allocation completed: %zu MB", stack_breaker / (1024 * 1024));
             }
             break;
-
         case 6:  // C++异常
             xlog_info("=== Testing C++ exceptions ===");
             {
+                // C++异常是通过throw抛出的，不是硬件异常
+                // 但我们仍然可以测试协程的C++异常处理能力
+                xlog_info("Throwing C++ exception...");
                 throw std::runtime_error("Test C++ exception from coroutine");
+                xlog_info("This line should not be reached");
             }
             break;
 
@@ -290,24 +284,18 @@ int main() {
     xlog_info("All threads started");
 
     // Start coroutine
-    // coroutine_run(test_coroutine, nullptr);
-     int cs_id = 10;
-     coroutine_run(comprehensive_exception_test, &cs_id);
-    int test_cases[] = {1, 2, 3, 4, 9, 10};  // 各种异常类型
-    //for (int i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
-    //    coroutine_run(comprehensive_exception_test, &test_cases[i]);
-    //}
-    //comprehensive_exception_test(nullptr);
+    coroutine_run(test_coroutine, nullptr);
+
+    int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
+    for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
+        coroutine_run(comprehensive_exception_test, &test_cases[i]);
+    }
+ 
 
     // Main loop - process callbacks
     while(true) {
         xthread_update();  // Process RPC results from worker threads
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        //if (coroutine_get_active_count() == 0) {
-        //    xlog_info("All coroutines finished");
-        //    break;
-        //}
     }
 
     // Cleanup
