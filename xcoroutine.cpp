@@ -19,41 +19,86 @@ static xCoroService* _co_svs = nullptr;
 // Thread local storage
 static thread_local int _co_cid = -1;
 
-// Global longjmp context for hardware exception protection (similar to sigLJ in daemon.c)
+// Global longjmp context for hardware exception protection
 static thread_local xCoroutineLJ* g_current_lj = nullptr;
 
 // Signal handler for Unix/Linux systems
 #ifndef _WIN32
+// 添加必要的头文件
+#include <dlfcn.h>
+#include <link.h>  // 用于获取模块信息
+
+// 辅助函数：获取模块基地址
+static uintptr_t get_module_base_address() {
+    Dl_info info;
+    if (dladdr((void*)get_module_base_address, &info)) {
+        return (uintptr_t)info.dli_fbase;
+    }
+    return 0;
+}
+
+// 辅助函数：解析地址到模块相对地址
+static void print_address_info(uintptr_t addr, const char* prefix) {
+    Dl_info info;
+    if (dladdr((void*)addr, &info)) {
+        uintptr_t offset = addr - (uintptr_t)info.dli_fbase;
+        xlog_err("%s: 0x%lx (module: %s, offset: 0x%lx)",
+                prefix, addr, info.dli_fname ? info.dli_fname : "unknown", offset);
+    } else {
+        xlog_err("%s: 0x%lx (unknown module)", prefix, addr);
+    }
+}
+
 static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
     if (g_current_lj && g_current_lj->in_protected_call) {
         g_current_lj->sig = sig;
 
-        // 记录详细的信号信息
-        xlog_err("Hardware signal %d caught in coroutine at address %p",
-                 sig, info->si_addr);
+        // 记录详细的信号和地址信息
+        xlog_err("=== HARDWARE EXCEPTION DETECTED ===");
+        xlog_err("Signal: %d (%s)", sig,
+                sig == SIGSEGV ? "SIGSEGV" :
+                sig == SIGFPE ? "SIGFPE" :
+                sig == SIGILL ? "SIGILL" :
+                sig == SIGBUS ? "SIGBUS" : "Unknown");
 
-        // 获取调用栈（可选，用于调试）
-        void* callstack[128];
-        int frames = backtrace(callstack, 128);
-        char** strs = backtrace_symbols(callstack, frames);
-        if (strs) {
-            xlog_err("Backtrace (%d frames):", frames);
-            for (int i = 0; i < frames && i < 10; ++i) {  // 只显示前10帧
-                xlog_err("  %s", strs[i]);
-            }
-            free(strs);
+        // 打印异常地址信息
+        print_address_info((uintptr_t)info->si_addr, "Fault address");
+
+        // 如果是SIGSEGV，提供更多信息
+        if (sig == SIGSEGV && info->si_code > 0) {
+            const char* access_type = "unknown";
+            if (info->si_code == SEGV_MAPERR) access_type = "address not mapped";
+            else if (info->si_code == SEGV_ACCERR) access_type = "invalid permissions";
+            xlog_err("Access violation type: %s", access_type);
         }
 
-        // 跳转回保护点
+        // 获取调用栈
+        void* callstack[128];
+        int frames = backtrace(callstack, 128);
+
+        xlog_err("Call stack (%d frames):", frames);
+        for (int i = 0; i < frames && i < 8; ++i) {  // 限制为8帧
+            Dl_info dl_info;
+            if (dladdr(callstack[i], &dl_info)) {
+                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
+                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
+                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
+
+                xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
+            } else {
+                xlog_err("  #%d: 0x%p", i, callstack[i]);
+            }
+        }
+        xlog_err("=== END EXCEPTION REPORT ===");
+
         siglongjmp(g_current_lj->buf, 1);
     } else {
-        // 非保护调用中的信号，恢复默认处理
+        // 非保护调用中的信号处理
         xlog_err("Signal %d in non-protected context, terminating", sig);
         signal(sig, SIG_DFL);
         raise(sig);
     }
 }
-
 // 安装信号处理器
 static void install_signal_handlers() {
     struct sigaction sa;
@@ -72,6 +117,94 @@ static void install_signal_handlers() {
     xlog_info("Linux signal handlers installed");
 }
 #else
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+
+// Windows堆栈跟踪函数
+static void print_windows_stack_trace(PEXCEPTION_POINTERS ExceptionInfo) {
+    HANDLE process = GetCurrentProcess();
+    HANDLE thread = GetCurrentThread();
+
+    // 初始化符号处理（添加错误检查）
+    if (!SymInitialize(process, NULL, TRUE)) {
+        xlog_err("  SymInitialize failed, error: %lu", GetLastError());
+        return;
+    }
+
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+
+    // 获取上下文
+    CONTEXT context = *ExceptionInfo->ContextRecord;
+
+    // 初始化堆栈帧
+    STACKFRAME64 stackFrame;
+    ZeroMemory(&stackFrame, sizeof(STACKFRAME64));
+
+#ifdef _M_AMD64
+    stackFrame.AddrPC.Offset = context.Rip;
+    stackFrame.AddrPC.Mode = AddrModeFlat;
+    stackFrame.AddrFrame.Offset = context.Rsp;
+    stackFrame.AddrFrame.Mode = AddrModeFlat;
+    stackFrame.AddrStack.Offset = context.Rsp;
+    stackFrame.AddrStack.Mode = AddrModeFlat;
+#else
+    stackFrame.AddrPC.Offset = context.Eip;
+    stackFrame.AddrPC.Mode = AddrModeFlat;
+    stackFrame.AddrFrame.Offset = context.Ebp;
+    stackFrame.AddrFrame.Mode = AddrModeFlat;
+    stackFrame.AddrStack.Offset = context.Esp;
+    stackFrame.AddrStack.Mode = AddrModeFlat;
+#endif
+
+    xlog_err("Stack trace:");
+    int frameCount = 0;
+
+    while (frameCount < 10) {  // 限制为10帧
+        if (!StackWalk64(
+#ifdef _M_AMD64
+            IMAGE_FILE_MACHINE_AMD64,
+#else
+            IMAGE_FILE_MACHINE_I386,
+#endif
+            process, thread, &stackFrame, &context, NULL,
+            SymFunctionTableAccess64, SymGetModuleBase64, NULL)) {
+            break;
+        }
+
+        if (stackFrame.AddrPC.Offset == 0) break;
+        frameCount++;
+
+        // 获取符号信息
+        DWORD64 displacement = 0;
+        char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+        PSYMBOL_INFO pSymbol = (PSYMBOL_INFO)buffer;
+        pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        pSymbol->MaxNameLen = MAX_SYM_NAME;
+
+        if (SymFromAddr(process, stackFrame.AddrPC.Offset, &displacement, pSymbol)) {
+            // 获取行号信息
+            IMAGEHLP_LINE64 line;
+            line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+            DWORD lineDisplacement = 0;
+
+            if (SymGetLineFromAddr64(process, stackFrame.AddrPC.Offset, &lineDisplacement, &line)) {
+                xlog_err("  [%d] %s - %s:%d", frameCount, pSymbol->Name, line.FileName, line.LineNumber);
+            } else {
+                xlog_err("  [%d] %s + 0x%llx", frameCount, pSymbol->Name, displacement);
+            }
+        } else {
+            xlog_err("  [%d] 0x%llx", frameCount, stackFrame.AddrPC.Offset);
+        }
+    }
+
+    if (frameCount == 0) {
+        xlog_err("  No stack frames captured");
+    }
+
+    SymCleanup(process);
+}
+
 // Windows: Use structured exception handling
 static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
     xlog_err("*** GLOBAL EXCEPTION FILTER: Exception code: 0x%08X ***",
@@ -101,8 +234,58 @@ static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
 static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo) {
     if (g_current_lj && g_current_lj->in_protected_call) {
         g_current_lj->sig = ExceptionInfo->ExceptionRecord->ExceptionCode;
-        xlog_err("Hardware exception caught in coroutine: code 0x%08X",
-                 ExceptionInfo->ExceptionRecord->ExceptionCode);
+
+        xlog_err("=== WINDOWS HARDWARE EXCEPTION DETECTED ===");
+
+        // 改进的异常代码描述
+        const char* exception_desc = "Unknown";
+        switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
+            case 0xC0000005: exception_desc = "EXCEPTION_ACCESS_VIOLATION"; break;
+            case 0xC0000094: exception_desc = "EXCEPTION_INT_DIVIDE_BY_ZERO"; break;
+            case 0xC00000FD: exception_desc = "EXCEPTION_STACK_OVERFLOW"; break;
+            case 0xC0000374: exception_desc = "STATUS_HEAP_CORRUPTION"; break;
+            case 0xC0000409: exception_desc = "STATUS_STACK_BUFFER_OVERRUN"; break;
+            case 0xE06D7363: exception_desc = "CPP_EH_EXCEPTION"; break;
+        }
+        xlog_err("Exception: 0x%08X (%s)", ExceptionInfo->ExceptionRecord->ExceptionCode, exception_desc);
+
+        xlog_err("Exception address: 0x%p", ExceptionInfo->ExceptionRecord->ExceptionAddress);
+
+        // Windows下可以尝试获取模块信息
+        HMODULE hModule = NULL;
+        if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                             (LPCTSTR)ExceptionInfo->ExceptionRecord->ExceptionAddress,
+                             &hModule)) {
+            char modulePath[MAX_PATH];
+            if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
+                uintptr_t offset = (uintptr_t)ExceptionInfo->ExceptionRecord->ExceptionAddress - (uintptr_t)hModule;
+                xlog_err("Exception in module: %s + 0x%lx", modulePath, offset);
+
+                // 额外信息：如果是访问违例，提供更多细节
+                if (ExceptionInfo->ExceptionRecord->ExceptionCode == 0xC0000005) {
+                    // EXCEPTION_ACCESS_VIOLATION
+                    ULONG_PTR access_type = ExceptionInfo->ExceptionRecord->ExceptionInformation[0];
+                    ULONG_PTR violation_address = ExceptionInfo->ExceptionRecord->ExceptionInformation[1];
+                    const char* access_str = (access_type == 0) ? "read" :
+                                           (access_type == 1) ? "write" : "execute";
+                    xlog_err("Access violation: attempted to %s address 0x%p",
+                            access_str, (void*)violation_address);
+                }
+            }
+        }
+
+        // 添加协程上下文信息
+        if (g_current_lj) {
+            xlog_err("Coroutine context: protected_call=%d, signal=%d",
+                    g_current_lj->in_protected_call, g_current_lj->sig);
+        }
+
+        // 获取Windows堆栈跟踪
+        xlog_err("Stack trace:");
+        print_windows_stack_trace(ExceptionInfo);
+
+        xlog_err("=== END EXCEPTION REPORT ===");
+
         longjmp(g_current_lj->buf, 1);
     }
     return EXCEPTION_CONTINUE_SEARCH;
@@ -304,7 +487,15 @@ public:
             task = func(arg);
         } else {
             // Hardware exception during coroutine creation
+            xlog_err("=== COROUTINE CREATION EXCEPTION ===");
             xlog_err("Coroutine %d creation crashed with hardware exception", coro_id);
+            xlog_err("Exception signal: %d", creation_lj.sig);
+            #ifdef _WIN32
+                xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
+            #else
+                xlog_err("Linux signal: %d", creation_lj.sig);
+            #endif
+            xlog_err("=== END CREATION EXCEPTION REPORT ===");
             task = xTask{};
         }
 
