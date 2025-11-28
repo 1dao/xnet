@@ -21,12 +21,13 @@
 
 #define _LARGEFILE_SOURCE
 #define _FILE_OFFSET_BITS 64
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member))) 
+#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #ifdef _WIN32
 	typedef SOCKET				xSocket;
 #else
 	typedef int					xSocket;
 #endif
+#define UNUSED(x) (void)(x)
 
 #ifdef _WIN32
     #include <stdint.h>
@@ -52,4 +53,26 @@
         #endif
     #endif
 #endif
+
+// unlikely/likely define
+#ifndef unlikely
+    #if defined(__GNUC__) || defined(__clang__)
+        // GCC/Clang：使用 __builtin_expect
+        #define unlikely(x) __builtin_expect(!!(x), 0)
+        #define likely(x)   __builtin_expect(!!(x), 1)
+    #elif defined(__FreeBSD__) || defined(__APPLE__)
+        // FreeBSD/macOS：使用 sys/cdefs.h 封装
+        #include <sys/cdefs.h>
+    //#elif defined(_MSC_VER) && _MSC_VER >= 1910  // VS2017+
+    //    // MSVC 2017+：使用 _unlikely/_likely
+    //    #include <intrin.h>
+    //    #define unlikely(x) _unlikely(x)
+    //    #define likely(x)   _likely(x)
+    #else
+        // 其他编译器（IAR、低版本MSVC等）：空定义
+        #define unlikely(x) (x)
+        #define likely(x)   (x)
+    #endif
+#endif
+
 #endif

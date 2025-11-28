@@ -73,7 +73,7 @@ void pack_handles_reg() {
 
 // 服务器主循环
 void server_main() {
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(100);
     if (!el) {
         std::cerr << "Failed to create event loop" << std::endl;
         return;

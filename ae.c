@@ -43,7 +43,6 @@
 #include "ae.h"
 #include "zmalloc.h"
 
-
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 #ifdef HAVE_EPOLL
@@ -80,14 +79,19 @@ static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientD
 }
 #endif
 
-aeEventLoop *aeCreateEventLoop(void) {
+#define INITIAL_EVENT 1024
+aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
     if (_net_ae) return _net_ae;
     eventLoop = (aeEventLoop*)zmalloc(sizeof(*eventLoop));
     if (!eventLoop) return NULL;
     memset(eventLoop, 0x00, sizeof(*eventLoop));
-
+    eventLoop->nevents = setsize < INITIAL_EVENT ? setsize : INITIAL_EVENT;
+    eventLoop->events = zmalloc(sizeof(aeFileEvent)*eventLoop->nevents);
+    eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*eventLoop->nevents);
+    if (eventLoop->events == NULL || eventLoop->fired == NULL) goto ERR_RET;
+    eventLoop->setsize = setsize;
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
@@ -96,27 +100,63 @@ aeEventLoop *aeCreateEventLoop(void) {
     eventLoop->efhead = 0;
     eventLoop->nrpc = 0;
     eventLoop->fdWaitSlot = -1;
-
-    for (int i = 0; i < AE_SETSIZE - 1; i++) {
-        eventLoop->events[i].slot = i + 1;
-    }
-
-    if (aeApiCreate(eventLoop) == -1) {
-        zfree(eventLoop);
-        return NULL;
-    }
+    if (aeApiCreate(eventLoop) == -1) goto ERR_RET;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
-    for (i = 0; i < AE_SETSIZE; i++)
+    for (i = 0; i < eventLoop->nevents; i++) {
+        eventLoop->events[i].slot = i + 1;
         eventLoop->events[i].mask = AE_NONE;
-    _net_ae = eventLoop;
+    }
+    eventLoop->events[eventLoop->nevents-1].slot = -1;     // last event
 
+    _net_ae = eventLoop;
     return eventLoop;
+ERR_RET:
+    if (eventLoop) {
+        zfree(eventLoop->events);
+        zfree(eventLoop->fired);
+        zfree(eventLoop);
+    }
+    return NULL;
 }
 
+/* Return the current set size. */
+int aeGetSetSize(aeEventLoop *eventLoop) {
+    return eventLoop->setsize;
+}
+
+/* Resize the maximum set size of the event loop.
+ * If the requested set size is smaller than the current set size, but
+ * there is already a file descriptor in use that is >= the requested
+ * set size minus one, AE_ERR is returned and the operation is not
+ * performed at all.
+ *
+ * Otherwise AE_OK is returned and the operation is successful. */
+int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
+    if (setsize == eventLoop->setsize) return AE_OK;
+    if (eventLoop->maxfd >= setsize) return AE_ERR;
+    if (aeApiResize(eventLoop,setsize) == -1) return AE_ERR;
+
+    eventLoop->setsize = setsize;
+
+    /* If the current allocated space is larger than the requested size,
+     * we need to shrink it to the requested size. */
+    if (setsize < eventLoop->nevents) {
+        eventLoop->events = zrealloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
+        eventLoop->fired = zrealloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
+        eventLoop->nevents = setsize;
+    }
+    return AE_OK;
+}
+
+/*
+ * Return the current event loop.
+ *
+ * Note: it just means you turn on/off the global AE_DONT_WAIT.
+ */
 aeEventLoop* aeGetCurEventLoop(void) {
     if (!_net_ae)
-        aeCreateEventLoop();
+        aeCreateEventLoop(INITIAL_EVENT);
     return _net_ae;
 }
 
@@ -129,9 +169,24 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     }
 #endif
     aeApiFree(eventLoop);
+    zfree(eventLoop->events);
+    zfree(eventLoop->fired);
+
+    /* Free the time events list. */
+    aeTimeEvent *next_te, *te = eventLoop->timeEventHead;
+    while (te) {
+        next_te = te->next;
+        if (te->finalizerProc)
+            te->finalizerProc(eventLoop, te->clientData);
+        zfree(te);
+        te = next_te;
+    }
     zfree(eventLoop);
-    eventLoop = NULL;
+
+    if (_net_ae == eventLoop)
+        _net_ae = NULL;
 }
+
 
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
@@ -141,6 +196,21 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     aeFileProc *proc, void *clientData, aeFileEvent** ev) {
     //if (fd >= AE_SETSIZE) return AE_ERR;
     if (eventLoop->efhead == -1) return AE_ERR;
+
+    /* Resize the events and fired arrays if the file
+     * descriptor exceeds the current number of events. */
+    if (unlikely(fd >= eventLoop->nevents)) {
+        int newnevents = eventLoop->nevents;
+        newnevents = (newnevents * 2 > (int)fd + 1) ? newnevents * 2 : (int)fd + 1;
+        newnevents = (newnevents > eventLoop->setsize) ? eventLoop->setsize : newnevents;
+        eventLoop->events = zrealloc(eventLoop->events, sizeof(aeFileEvent) * newnevents);
+        eventLoop->fired = zrealloc(eventLoop->fired, sizeof(aeFiredEvent) * newnevents);
+
+        /* Initialize new slots with an AE_NONE mask */
+        for (int i = eventLoop->nevents; i < newnevents; i++)
+            eventLoop->events[i].mask = AE_NONE;
+        eventLoop->nevents = newnevents;
+    }
 
     aeFileEvent *fe = &eventLoop->events[eventLoop->efhead];
     eventLoop->efhead = fe->slot;
@@ -424,21 +494,38 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
     return processed; /* return the number of processed file/time events */
 }
 
+/* Wait for millseconds until the given file descriptor becomes
+ * writable/readable/exception */
+int aeWait(xSocket fd, int mask, long long milliseconds) {
+    struct timeval tv;
+    fd_set rfds, wfds, efds;
+    int retmask = 0, retval;
+
+     tv.tv_sec = (long)milliseconds / 1000;
+     tv.tv_usec = (long)(milliseconds % 1000) * 1000;
+     FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    FD_ZERO(&efds);
+
+        if (mask & AE_READABLE) FD_SET(fd, &rfds);
+    if (mask & AE_WRITABLE) FD_SET(fd, &wfds);
+    if ((retval = select((int)fd + 1, &rfds, &wfds, &efds, &tv)) > 0) {
+        if (FD_ISSET(fd, &rfds)) retmask |= AE_READABLE;
+        if (FD_ISSET(fd, &wfds)) retmask |= AE_WRITABLE;
+        return retmask;
+
+    }
+    else {
+        return retval;
+    }
+}
+
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
         aeProcessEvents(eventLoop, AE_ALL_EVENTS);
-    }
-}
-
-void aeFramePoll(aeEventLoop* eventLoop) {
-    if (!eventLoop->stop) {
-        if (eventLoop->beforesleep != NULL)
-            eventLoop->beforesleep(eventLoop);
-
-        aeProcessEvents(eventLoop, AE_ALL_EVENTS | AE_DONT_WAIT);
     }
 }
 
@@ -486,30 +573,4 @@ void aeGetSignalFile(aeEventLoop *eventLoop, xSocket* fdSignal){
 #else
     *fdSignal = aeGetStateFD(eventLoop);
 #endif
-}
-
-/* Wait for millseconds until the given file descriptor becomes
- * writable/readable/exception */
-int aeWait(xSocket fd, int mask, long long milliseconds) {
-    struct timeval tv;
-    fd_set rfds, wfds, efds;
-    int retmask = 0, retval;
-
-     tv.tv_sec = (long)milliseconds / 1000;
-     tv.tv_usec = (long)(milliseconds % 1000) * 1000;
-     FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    FD_ZERO(&efds);
-
-        if (mask & AE_READABLE) FD_SET(fd, &rfds);
-    if (mask & AE_WRITABLE) FD_SET(fd, &wfds);
-    if ((retval = select((int)fd + 1, &rfds, &wfds, &efds, &tv)) > 0) {
-        if (FD_ISSET(fd, &rfds)) retmask |= AE_READABLE;
-        if (FD_ISSET(fd, &wfds)) retmask |= AE_WRITABLE;
-        return retmask;
-
-    }
-    else {
-        return retval;
-    }
 }

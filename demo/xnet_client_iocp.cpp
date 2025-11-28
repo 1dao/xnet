@@ -182,7 +182,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 创建事件循环
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(100);
     if (!el) {
         printf("创建事件循环失败\n");
         return 1;

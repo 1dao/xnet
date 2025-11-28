@@ -136,7 +136,7 @@ int main(int argc, char* argv[]) {
     register_protocol_handler(1, handle_protocol_1);
     register_protocol_handler(2, handle_protocol_2);
 
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(100);
     if (!el) {
         printf("创建事件循环失败\n");
         return 1;

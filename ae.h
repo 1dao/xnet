@@ -100,13 +100,16 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program */
 typedef struct aeEventLoop {
-    xSocket maxfd;
-    long long timeEventNextId;
-    aeFileEvent events[AE_SETSIZE];     /* Registered events */
+    xSocket     maxfd;                  /* highest file descriptor currently registered */
+    int         setsize;                /* max number of file descriptors tracked */
+    long long   timeEventNextId;
+    int         nevents;                /* Size of Registered events */
+    aeFileEvent* events;                /* Registered events */
+    aeFiredEvent* fired;                /* Fired events */
+
     int         efhead;                 /* freehead */
     int         nrpc;
 
-    aeFiredEvent fired[AE_SETSIZE];     /* Fired events */
     aeTimeEvent *timeEventHead;
     int stop;
     void *apidata; /* This is used for polling API specific data */
@@ -114,13 +117,13 @@ typedef struct aeEventLoop {
 
     // 信号fd相关字段
 #ifndef AE_USING_IOCP
-    xSocket signal_fd[2];      // 信号fd对 [0]:读端, [1]:写端
+    xSocket signal_fd[2];           // 信号fd对 [0]:读端, [1]:写端
 #endif
     int fdWaitSlot;                // 是否ae创建的信号fd
 } aeEventLoop;
 
 /* Prototypes */
-aeEventLoop *aeCreateEventLoop(void);
+aeEventLoop *aeCreateEventLoop(int setsize);
 aeEventLoop *aeGetCurEventLoop(void);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);

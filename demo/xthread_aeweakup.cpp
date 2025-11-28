@@ -103,7 +103,7 @@ void redis_thread_on_init(xThread* ctx) {
     xlog_info("[Redis Thread] Initializing ae event loop");
 
     // Create ae event loop for this thread
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(200);
     if (!el) {
         xlog_err("[Redis Thread] Failed to create ae event loop");
         return;
@@ -145,7 +145,7 @@ void compute_thread_on_init(xThread* ctx) {
     xlog_info("[Compute Thread] Initializing ae event loop");
 
     // Create ae event loop for this thread
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(50);
     if (!el) {
         xlog_err("[Compute Thread] Failed to create ae event loop");
         return;
@@ -307,7 +307,7 @@ xCoroTask performance_test(void* arg) {
 
 int main() {
     // Initialize
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(1024);
     if (!el) {
         xlog_err("Failed to create event loop");
         return -1;

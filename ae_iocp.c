@@ -29,6 +29,12 @@ static int aeApiCreate(aeEventLoop* eventLoop) {
     return 0;
 }
 
+static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    (void)(eventLoop);
+    (void)(setsize);
+    return 0;
+}
+
 static void aeApiFree(aeEventLoop* eventLoop) {
     aeApiState* state = eventLoop->apidata;
 

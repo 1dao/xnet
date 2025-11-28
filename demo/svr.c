@@ -88,7 +88,7 @@ void _ReadHandler(aeEventLoop *el, int fd, void *privdata, int mask)
 	}
 }
 
-void _AcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) 
+void _AcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask)
 {
 	printf("accept:%d\n",fd);
 
@@ -107,12 +107,12 @@ int main()
 {
 	_svr.bindaddr="127.0.0.1";
 	_svr.port=6379;
-	
-	_svr.el=aeCreateEventLoop();
+
+	_svr.el=aeCreateEventLoop(100);
 	_svr.fd=anetTcpServer(_svr.neterr,_svr.port,_svr.bindaddr);
 
 	//handler
- 	if (aeCreateFileEvent(_svr.el, _svr.fd, AE_READABLE,_AcceptHandler, NULL) == AE_ERR) 
+ 	if (aeCreateFileEvent(_svr.el, _svr.fd, AE_READABLE,_AcceptHandler, NULL) == AE_ERR)
 		printf("creating file event");
 
 	aeMain(_svr.el);

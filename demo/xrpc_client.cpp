@@ -1,4 +1,4 @@
-#include "ae.h"
+﻿#include "ae.h"
 #include "xchannel.h"
 #include "xpack.h"
 #include "xcoroutine.h"
@@ -181,7 +181,7 @@ xCoroTask test_comprehensive(void* arg) {
 // 主函数
 //=============================================================================
 void client_main() {
-    aeEventLoop* el = aeCreateEventLoop();
+    aeEventLoop* el = aeCreateEventLoop(100);
     if (!el) {
         std::cerr << "Failed to create event loop" << std::endl;
         return;

@@ -6,29 +6,45 @@
 
 typedef struct aeApiState {
     int epfd;
-    struct epoll_event events[AE_SETSIZE];
+    struct epoll_event *events;
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
-    aeApiState *state = (aeApiState *)zmalloc(sizeof(aeApiState));
-
+    aeApiState *state = zmalloc(sizeof(aeApiState));
     if (!state) return -1;
+    state->events = zmalloc(sizeof(struct epoll_event)*eventLoop->setsize);
+    if (!state->events) {
+        zfree(state);
+        return -1;
+    }
+
     state->epfd = epoll_create(1024); /* 1024 is just an hint for the kernel */
-    if (state->epfd == -1) return -1;
+    if (state->epfd == -1) {
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
     eventLoop->apidata = state;
+    return 0;
+}
+
+static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    aeApiState *state = eventLoop->apidata;
+
+    state->events = zrealloc(state->events, sizeof(struct epoll_event)*setsize);
     return 0;
 }
 
 static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
-
     close(state->epfd);
+    zfree(state->events);
     zfree(state);
 }
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* fe) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
-    struct epoll_event ee;
+    struct epoll_event ee = {0};
     /* If the fd was already monitored for some event, we need a MOD
      * operation. Otherwise we need an ADD operation. */
     int op = eventLoop->events[fd].mask == AE_NONE ?
@@ -70,7 +86,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     int retval, numevents = 0;
 
-    retval = epoll_wait(state->epfd,state->events,AE_SETSIZE,
+    retval = epoll_wait(state->epfd,state->events, eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {
         int j;
@@ -86,6 +102,8 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[j].mask = mask;
             eventLoop->fired[j].fe = (aeFileEvent*)e->data.ptr;
         }
+    } else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: epoll_wait, %s", strerror(errno));
     }
     return numevents;
 }
