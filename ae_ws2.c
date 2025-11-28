@@ -8,7 +8,6 @@
 #include <io.h>         // 提供_get_osfhandle函数
 #include "ae.h"         // 提供aeEventLoop、aeFileEvent等事件循环相关结构和AE_*宏
 #include "zmalloc.h"    // 提供zmalloc、zfree内存分配函数
-//#include "win32fixes.h"
 
 typedef struct aeApiState {
     fd_set rfds, wfds;

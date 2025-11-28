@@ -1,9 +1,11 @@
-// xthread.cpp - 线程池实现
+﻿// xthread.cpp - 线程相关
 
 #include "xthread.h"
+#include "fmacros.h"
 #include "xlog.h"
 #include <cstring>
 #include <string.h>
+#include <assert.h>
 
 #ifdef _WIN32
 #include <process.h>
@@ -18,17 +20,17 @@
 // 全局状态
 // ============================================================================
 
-static XThreadContext*  g_threads[XTHR_MAX] = {nullptr};
-static xMutex           g_lock;
-static bool             g_init = false;
+static xThread*         _threads[XTHR_MAX] = {nullptr};
+static xMutex           _lock;
+static bool             _init = false;
 
 #ifdef _WIN32
-static DWORD            g_tls = TLS_OUT_OF_INDEXES;
+static DWORD            _tls = TLS_OUT_OF_INDEXES;
 #define XTHR_COMPLETION_KEY ((ULONG_PTR)-1)
 #else
-static pthread_key_t    g_tls;
-static pthread_once_t   g_tls_once = PTHREAD_ONCE_INIT;
-static void tls_init_once() { pthread_key_create(&g_tls, nullptr); }
+static pthread_key_t    _tls;
+static pthread_once_t   _tls_once = PTHREAD_ONCE_INIT;
+static void tls_init_once() { pthread_key_create(&_tls, nullptr); }
 #endif
 
 // ============================================================================
@@ -37,33 +39,34 @@ static void tls_init_once() { pthread_key_create(&g_tls, nullptr); }
 
 static void tls_set(int id) {
 #ifdef _WIN32
-    TlsSetValue(g_tls, (LPVOID)(intptr_t)id);
+    TlsSetValue(_tls, (LPVOID)(intptr_t)id);
 #else
-    pthread_setspecific(g_tls, (void*)(intptr_t)id);
+    pthread_setspecific(_tls, (void*)(intptr_t)id);
 #endif
 }
 
 static int tls_get() {
 #ifdef _WIN32
-    return (int)(intptr_t)TlsGetValue(g_tls);
+    return (int)(intptr_t)TlsGetValue(_tls);
 #else
-    return (int)(intptr_t)pthread_getspecific(g_tls);
+    return (int)(intptr_t)pthread_getspecific(_tls);
 #endif
 }
 
 // ============================================================================
-// XThreadContext
+// xThread
 // ============================================================================
 
-XThreadContext::XThreadContext()
-    : id(0), name(nullptr), running(false), userdata(nullptr), handle(0),
-      on_init(nullptr), on_update(nullptr), on_cleanup(nullptr) {}
+xThread::xThread(bool xwait_)
+    : id(0), name(nullptr), running(false), queue(xwait_), userdata(nullptr),
+    handle(0), on_init(nullptr), on_update(nullptr), on_cleanup(nullptr) {
+}
 
 // ============================================================================
-// XTaskQueue
+// xthrQueue
 // ============================================================================
 
-XTaskQueue::XTaskQueue() : pending_(0) {
+xthrQueue::xthrQueue(bool xwait_) : pending_(0),xwait_(xwait_)  {
 #ifdef _WIN32
     iocp_ = nullptr;
 #else
@@ -71,14 +74,14 @@ XTaskQueue::XTaskQueue() : pending_(0) {
 #endif
 }
 
-XTaskQueue::~XTaskQueue() {
+xthrQueue::~xthrQueue() {
     uninit();
 }
 
-bool XTaskQueue::init() {
+bool xthrQueue::init() {
     xnet_mutex_init(&lock_);
     pending_ = 0;
-
+    if (!xwait_) {
 #ifdef _WIN32
     iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1);
     return iocp_ != nullptr;
@@ -88,36 +91,61 @@ bool XTaskQueue::init() {
     fcntl(fds_[1], F_SETFL, O_NONBLOCK);
     return true;
 #endif
+    } else {
+#ifdef _WIN32
+        iocp_ = nullptr;            // 等待外部设置
+#else
+        fds_[0] = fds_[1] = -1;     // 等待外部设置
+#endif
+        return true;
+    }
 }
 
-void XTaskQueue::uninit() {
+void xthrQueue::uninit() {
+    if (xwait_) {
+        xnet_mutex_uninit(&lock_);
+        return;
+    }
 #ifdef _WIN32
     if (iocp_) { CloseHandle(iocp_); iocp_ = nullptr; }
 #else
     if (fds_[0] >= 0) { close(fds_[0]); close(fds_[1]); fds_[0] = fds_[1] = -1; }
 #endif
-    xnet_mutex_destroy(&lock_);
+    xnet_mutex_uninit(&lock_);
 }
 
-bool XTaskQueue::push(XThreadTask&& task) {
+bool xthrQueue::push(xthrTask&& task) {
     xnet_mutex_lock(&lock_);
     queue_.push(std::move(task));
-
-    if (!pending_) {
-#ifdef _WIN32
-        if (PostQueuedCompletionStatus(iocp_, 0, XTHR_COMPLETION_KEY, nullptr))
-            pending_ = 1;
-#else
-        if (send(fds_[0], "!", 1, 0) > 0)
-            pending_ = 1;
-#endif
+    bool need_notify = true; //!pending_;
+    if (need_notify) {
+        pending_ = 1;
     }
     xnet_mutex_unlock(&lock_);
+
+    // 在锁外执行写入，减少锁持有时间
+    if (need_notify) {
+#ifdef _WIN32
+        if (!PostQueuedCompletionStatus(iocp_, 0, XTHR_COMPLETION_KEY, nullptr)){
+            DWORD error = GetLastError();
+            xlog_err("PostQueuedCompletionStatus failed: error=%d", error);
+            xnet_mutex_lock(&lock_);
+            pending_ = 0;
+            xnet_mutex_unlock(&lock_);
+        }
+#else
+        if(write(fds_[1], "!", 1) < 1){
+            xnet_mutex_lock(&lock_);
+            pending_ = 0;
+            xnet_mutex_unlock(&lock_);
+        }
+#endif
+    }
     return true;
 }
 
-std::vector<XThreadTask> XTaskQueue::pop_all() {
-    std::vector<XThreadTask> tasks;
+std::vector<xthrTask> xthrQueue::pop_all() {
+    std::vector<xthrTask> tasks;
     xnet_mutex_lock(&lock_);
     pending_ = 0;
     while (!queue_.empty()) {
@@ -128,7 +156,9 @@ std::vector<XThreadTask> XTaskQueue::pop_all() {
     return tasks;
 }
 
-bool XTaskQueue::wait(int timeout_ms) {
+bool xthrQueue::wait(int timeout_ms) {
+    if (xwait_) return true;
+
 #ifdef _WIN32
     DWORD timeout = (timeout_ms < 0) ? INFINITE : (DWORD)timeout_ms;
     DWORD trans; ULONG_PTR key; LPOVERLAPPED ov;
@@ -146,29 +176,52 @@ bool XTaskQueue::wait(int timeout_ms) {
 // 工作线程函数
 // ============================================================================
 
-static void process_tasks(XThreadContext* ctx) {
+static int process_tasks(xThread* ctx) {
+    int count = 0;
     auto tasks = ctx->queue.pop_all();
 
     for (auto& task : tasks) {
-        std::vector<VariantType> result;
-        try {
-            result = task.func(ctx, task.args);
-            // 插入成功码到开头
-            result.insert(result.begin(), (int)0);
-        } catch (const std::exception& e) {
-            xlog_err("Thread[%d] task error: %s", ctx->id, e.what());
-            result.clear();
-            result.push_back((int)XNET_CORO_EXCEPT);
-        } catch (...) {
-            result.clear();
-            result.push_back((int)XNET_UNKNOWN_ERROR);
-        }
+        switch (task.type) {
+            case XTHR_TASK_NORMAL: {
+                std::vector<VariantType> result;
+                try {
+                    result = task.func(ctx, task.args);
+                    // 插入成功码到开头
+                    result.insert(result.begin(), (int)0);
+                } catch (const std::exception& e) {
+                    xlog_err("Thread[%d] task error: %s", ctx->id, e.what());
+                    result.clear();
+                    result.push_back((int)XNET_CORO_EXCEPT);
+                } catch (...) {
+                    result.clear();
+                    result.push_back((int)XNET_UNKNOWN_ERROR);
+                }
 
-        // RPC回调：恢复调用者协程
-        if (task.wait_id != 0) {
-            coroutine_resume(task.wait_id, std::move(result));
+                if (task.wait_id != 0) {
+                    xThread* source_ctx = xthread_get(task.source_thread);
+                    if (source_ctx && source_ctx->running) {
+                        auto resume_task = xthrTask::make_resume(task.wait_id, std::move(result));
+                        resume_task.source_thread = ctx->id;
+                        source_ctx->queue.push(std::move(resume_task));
+                    } else {
+                        xlog_err("Source thread %d not found or not running, cannot resume coroutine",
+                                    task.source_thread);
+                    }
+                }
+                break;
+            }
+
+            case XTHR_TASK_RESUME: {
+                // 处理协程恢复任务（必须在协程所在的线程执行）
+                if (task.wait_id != 0) {
+                    coroutine_resume(task.wait_id, std::move(task.args));
+                }
+                break;
+            }
         }
+        count++;
     }
+    return count;
 }
 
 #ifdef _WIN32
@@ -176,11 +229,10 @@ static unsigned __stdcall worker_func(void* arg) {
 #else
 static void* worker_func(void* arg) {
 #endif
-    XThreadContext* ctx = (XThreadContext*)arg;
+    xThread* ctx = (xThread*)arg;
     tls_set(ctx->id);
 
     xlog_info("Thread[%d:%s] started", ctx->id, ctx->name);
-    // ctx->name 存在实时ctx->name,不存在使用"THR:%d", %d替换线程ID
     if (ctx->name) {
         xlog_set_thread_name(ctx->name);
     } else {
@@ -192,10 +244,16 @@ static void* worker_func(void* arg) {
     if (ctx->on_init) ctx->on_init(ctx);
 
     while (ctx->running) {
-        if (ctx->queue.wait(100)) {
+        if (ctx->queue.get_xwait()) {
+            if (ctx->on_update) ctx->on_update(ctx);
+            xlog_warn("Thread[%s] weakup & process tasks", ctx->name);
             process_tasks(ctx);
+        } else {
+            if (ctx->queue.wait(100)) {
+                process_tasks(ctx);
+            }
+            if (ctx->on_update) ctx->on_update(ctx);
         }
-        if (ctx->on_update) ctx->on_update(ctx);
     }
 
     // 处理剩余任务
@@ -217,92 +275,91 @@ static void* worker_func(void* arg) {
 // ============================================================================
 
 bool xthread_init() {
-    if (g_init) return true;
+    if (_init) return true;
 
-    xnet_mutex_init(&g_lock);
-    memset(g_threads, 0, sizeof(g_threads));
+    xnet_mutex_init(&_lock);
+    memset(_threads, 0, sizeof(_threads));
 
 #ifdef _WIN32
-    g_tls = TlsAlloc();
-    if (g_tls == TLS_OUT_OF_INDEXES) return false;
+    _tls = TlsAlloc();
+    if (_tls == TLS_OUT_OF_INDEXES) return false;
 #else
-    pthread_once(&g_tls_once, tls_init_once);
+    pthread_once(&_tls_once, tls_init_once);
 #endif
 
-    g_init = true;
+    _init = true;
     return true;
 }
 
 void xthread_uninit() {
-    if (!g_init) return;
+    if (!_init) return;
 
     for (int i = 0; i < XTHR_MAX; i++) {
-        if (g_threads[i]) xthread_unregister(i);
+        if (_threads[i]) xthread_unregister(i);
     }
 
 #ifdef _WIN32
-    if (g_tls != TLS_OUT_OF_INDEXES) { TlsFree(g_tls); g_tls = TLS_OUT_OF_INDEXES; }
+    if (_tls != TLS_OUT_OF_INDEXES) { TlsFree(_tls); _tls = TLS_OUT_OF_INDEXES; }
 #endif
 
-    xnet_mutex_destroy(&g_lock);
-    g_init = false;
+    xnet_mutex_uninit(&_lock);
+    _init = false;
 }
 
-bool xthread_register(int id, const char* name,
-                      void (*on_init)(XThreadContext*),
-                      void (*on_update)(XThreadContext*),
-                      void (*on_cleanup)(XThreadContext*)) {
-    if (id <= 0 || id >= XTHR_MAX || !g_init) return false;
+bool xthread_register(int id, bool xwait_, const char* name,
+                      void (*on_init)(xThread*),
+                      void (*on_update)(xThread*),
+                      void (*on_cleanup)(xThread*)) {
+    if (id <= 0 || id >= XTHR_MAX || !_init) return false;
 
-    xnet_mutex_lock(&g_lock);
-    if (g_threads[id]) { xnet_mutex_unlock(&g_lock); return false; }
+    xnet_mutex_lock(&_lock);
+    if (_threads[id]) { xnet_mutex_unlock(&_lock); return false; }
 
-    XThreadContext* ctx = new XThreadContext();
+    xThread* ctx = new xThread(xwait_);
     ctx->id = id;
     ctx->name = name;
     ctx->on_init = on_init;
     ctx->on_update = on_update;
     ctx->on_cleanup = on_cleanup;
     ctx->running = true;
-
     if (!ctx->queue.init()) {
         delete ctx;
-        xnet_mutex_unlock(&g_lock);
+        xnet_mutex_unlock(&_lock);
         return false;
     }
 
-    g_threads[id] = ctx;
+    _threads[id] = ctx;
 
 #ifdef _WIN32
     ctx->handle = (HANDLE)_beginthreadex(nullptr, 0, worker_func, ctx, 0, nullptr);
     if (!ctx->handle) {
         ctx->queue.uninit();
         delete ctx;
-        g_threads[id] = nullptr;
-        xnet_mutex_unlock(&g_lock);
+        _threads[id] = nullptr;
+        xnet_mutex_unlock(&_lock);
         return false;
     }
 #else
     if (pthread_create(&ctx->handle, nullptr, worker_func, ctx) != 0) {
         ctx->queue.uninit();
         delete ctx;
-        g_threads[id] = nullptr;
-        xnet_mutex_unlock(&g_lock);
+        _threads[id] = nullptr;
+        xnet_mutex_unlock(&_lock);
         return false;
     }
 #endif
 
-    xnet_mutex_unlock(&g_lock);
+    xnet_mutex_unlock(&_lock);
     return true;
 }
 
-bool xthread_register_main(int id, const char* name) {
-    if (id <= 0 || id >= XTHR_MAX || !g_init) return false;
+bool xthread_register_main(int id, bool xwait_, const char* name) {
+    if (id <= 0 || id >= XTHR_MAX || !_init) return false;
 
-    xnet_mutex_lock(&g_lock);
-    if (g_threads[id]) { xnet_mutex_unlock(&g_lock); return false; }
+    xnet_mutex_lock(&_lock);
+    if (_threads[id]) { xnet_mutex_unlock(&_lock); return false; }
 
-    XThreadContext* ctx = new XThreadContext();
+    xThread* ctx = new xThread(xwait_);
     ctx->id = id;
     ctx->name = name;
     ctx->running = true;
@@ -310,27 +367,27 @@ bool xthread_register_main(int id, const char* name) {
 
     if (!ctx->queue.init()) {
         delete ctx;
-        xnet_mutex_unlock(&g_lock);
+        xnet_mutex_unlock(&_lock);
         return false;
     }
 
-    g_threads[id] = ctx;
+    _threads[id] = ctx;
     tls_set(id);
 
-    xnet_mutex_unlock(&g_lock);
+    xnet_mutex_unlock(&_lock);
     return true;
 }
 
 void xthread_unregister(int id) {
     if (id <= 0 || id >= XTHR_MAX) return;
 
-    xnet_mutex_lock(&g_lock);
-    XThreadContext* ctx = g_threads[id];
-    if (!ctx) { xnet_mutex_unlock(&g_lock); return; }
+    xnet_mutex_lock(&_lock);
+    xThread* ctx = _threads[id];
+    if (!ctx) { xnet_mutex_unlock(&_lock); return; }
 
     ctx->running = false;
-    g_threads[id] = nullptr;
-    xnet_mutex_unlock(&g_lock);
+    _threads[id] = nullptr;
+    xnet_mutex_unlock(&_lock);
 
     if (ctx->handle) {
 #ifdef _WIN32
@@ -345,50 +402,52 @@ void xthread_unregister(int id) {
     delete ctx;
 }
 
-XThreadContext* xthread_get(int id) {
+xThread* xthread_get(int id) {
     if (id <= 0 || id >= XTHR_MAX) return nullptr;
-    return g_threads[id];
+    return _threads[id];
 }
 
 int xthread_current_id() { return tls_get(); }
 
-XThreadContext* xthread_current() { return xthread_get(tls_get()); }
+xThread* xthread_current() { return xthread_get(tls_get()); }
+
+int xthread_set_notify(void* fd) {
+    xThread* ctx = xthread_current();
+    if (!ctx) return -1;
+
+    #ifdef _WIN32
+        ctx->queue.set_iocp((HANDLE)fd);
+    #else
+        ctx->queue.set_notify_fd((int)fd);
+    #endif
+    if ((int)fd > 0) {
+        assert(ctx->queue.get_xwait());
+    }
+    xlog_warn("xthread_set_notify:%s, %d", ctx->name?ctx->name:"", (int)(fd));
+    return 0;
+}
 
 int xthread_update() {
-    XThreadContext* ctx = xthread_current();
+    xThread* ctx = xthread_current();
     if (!ctx) return 0;
 
-    auto tasks = ctx->queue.pop_all();
-    int count = 0;
-
-    for (auto& task : tasks) {
-        std::vector<VariantType> result;
-        try {
-            result = task.func(ctx, task.args);
-            result.insert(result.begin(), (int)0);
-        } catch (...) {
-            result.clear();
-            result.push_back((int)XNET_CORO_EXCEPT);
-        }
-
-        if (task.wait_id != 0) {
-            coroutine_resume(task.wait_id, std::move(result));
-        }
-        count++;
-    }
-    return count;
+    return process_tasks(ctx);
 }
 
 bool xthread_post(int target_id, XThreadFunc func, std::vector<VariantType> args) {
-    XThreadContext* target = xthread_get(target_id);
+    xThread* target = xthread_get(target_id);
     if (!target || !target->running) return false;
 
-    XThreadTask task;
+    xthrTask task;
     task.func = std::move(func);
     task.args = std::move(args);
     task.wait_id = 0;
     task.source_thread = tls_get();
 
+    xThread* self = xthread_get(task.source_thread);
+    xlog_warn("xthread post msg to:%s-%d, from:%s-%d"
+        , target->name ? target->name : "", target->id
+        , self->name ? self->name : "", self->id);
     return target->queue.push(std::move(task));
 }
 
@@ -397,7 +456,7 @@ bool xthread_post(int target_id, XThreadFunc func, std::vector<VariantType> args
 // ============================================================================
 
 xAwaiter xthread_rpc(int target_id, XThreadFunc func, std::vector<VariantType> args) {
-    XThreadContext* target = xthread_get(target_id);
+    xThread* target = xthread_get(target_id);
     if (!target || !target->running) {
         return xAwaiter(XTHR_ERR_NO_THREAD);
     }
@@ -415,7 +474,7 @@ xAwaiter xthread_rpc(int target_id, XThreadFunc func, std::vector<VariantType> a
     }
 
     // 构造任务
-    XThreadTask task;
+    xthrTask task;
     task.func = std::move(func);
     task.args = std::move(args);
     task.wait_id = wait_id;
@@ -425,6 +484,5 @@ xAwaiter xthread_rpc(int target_id, XThreadFunc func, std::vector<VariantType> a
     if (!target->queue.push(std::move(task))) {
         return xAwaiter(XTHR_ERR_QUEUE_FULL);
     }
-
     return awaiter;
 }

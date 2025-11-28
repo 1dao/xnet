@@ -5,7 +5,7 @@
 
 static uint8_t xlog_uart_port = 0;
 static uint8_t xlog_level_cur = XLOG_DEBUG;
-static xnet_adp_mutex_t  xlog_mutex;
+static xMutex  xlog_mutex;
 static BOOL    xlog_inited = FALSE;
 
 // 文件日志相关变量
@@ -38,7 +38,7 @@ static int       xlog_show_thread_name = 0;
 
 static inline void xlog_init_mutex(void) {
     if (!xlog_inited) {
-        xnet_mutex_adp_init(&xlog_mutex);
+        xnet_mutex_init(&xlog_mutex);
         xlog_inited = TRUE;
     }
 }
@@ -49,7 +49,7 @@ bool xlog_init(int level, bool file_enable, bool colo_enable, const char* file_p
     }
 
     // 初始化互斥锁
-    xnet_mutex_adp_init(&xlog_mutex);
+    xnet_mutex_init(&xlog_mutex);
 
     // 设置日志级别
     xlog_level_cur = level;
@@ -81,7 +81,7 @@ void xlog_uninit(void) {
     }
 
     xlog_info("xlog system uninitializing");
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
     xlog_inited = FALSE;
 
     if (xlog_file_handle) {
@@ -89,7 +89,7 @@ void xlog_uninit(void) {
         xlog_file_handle = NULL;
     }
 
-    xnet_mutex_adp_destroy(&xlog_mutex);
+    xnet_mutex_uninit(&xlog_mutex);
 }
 
 // ============================================================================
@@ -216,10 +216,10 @@ void xlog_set_file_path(const char* path) {
     if (!path) return;
     xlog_init_mutex();
 
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
     strncpy(xlog_file_path, path, sizeof(xlog_file_path) - 1);
     xlog_file_path[sizeof(xlog_file_path) - 1] = '\0';
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 const char* xlog_get_file_path(void) {
@@ -229,14 +229,14 @@ const char* xlog_get_file_path(void) {
 void xlog_set_file_enable(int enable) {
     xlog_init_mutex();
 
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
     xlog_file_enable = enable;
     if (!enable && xlog_file_handle) {
         xfs_fclose(xlog_file_handle);
         xlog_file_handle = NULL;
         xlog_current_size = 0;
     }
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 int xlog_get_file_enable(void) {
@@ -274,10 +274,10 @@ static int xlog_open_file(void) {
 // 文件轮转函数
 void xlog_rotate_file(void) {
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
 
     if (!xlog_file_handle) {
-        xnet_mutex_adp_unlock(&xlog_mutex);
+        xnet_mutex_unlock(&xlog_mutex);
         return;
     }
 
@@ -300,7 +300,7 @@ void xlog_rotate_file(void) {
     xlog_open_file();
     xlog_current_size = 0;
 
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 // 写入文件日志
@@ -371,7 +371,7 @@ static inline const char* xlog_get_level_str(int level, const char** color) {
 
 void xlog_nprint(char* s, size_t l) {
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
 
     // 写入文件
     xlog_write_to_file(s, l);
@@ -389,12 +389,12 @@ void xlog_nprint(char* s, size_t l) {
 #endif
         luat_uart_write(xlog_uart_port, s, l);
 
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 void xlog_write(char* s, size_t l) {
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
 
     // 写入文件
     xlog_write_to_file(s, l);
@@ -412,7 +412,7 @@ void xlog_write(char* s, size_t l) {
 #endif
         luat_uart_write(xlog_uart_port, s, l);
 
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 void xlog_set_level(int level) {
@@ -425,10 +425,10 @@ int xlog_get_level() {
 
 void xlog_set_hook(xlog_hook hook, void* userdata) {
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
     xlog_hook_func = hook;
     xlog_hook_userdata = userdata;
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 void xlog_set_show_timestamp(int enable) {
@@ -462,9 +462,8 @@ void xlog_flush(void) {
 
 void xlog_log(int level, const char* tag, const char* _fmt, ...) {
     if (xlog_level_cur > level) return;
-
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
 
     char log_buffer[LOGLOG_SIZE] = { 0 };
     char* tmp = log_buffer;
@@ -576,16 +575,15 @@ void xlog_log(int level, const char* tag, const char* _fmt, ...) {
     }
     else
 #endif
-        luat_uart_write(xlog_uart_port, log_buffer, pos);
-
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    luat_uart_write(xlog_uart_port, log_buffer, pos);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 void xlog_printf(int level, const char* _fmt, ...) {
     if (xlog_level_cur > level) return;
 
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
 
     size_t len;
     va_list args;
@@ -612,7 +610,7 @@ void xlog_printf(int level, const char* _fmt, ...) {
             luat_uart_write(xlog_uart_port, log_printf_buff, len + 1);
     }
 
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }
 
 void xlog_dump_all(const char* tag, void* ptr, size_t len) {
@@ -626,7 +624,7 @@ void xlog_dump_all(const char* tag, void* ptr, size_t len) {
     }
 
     xlog_init_mutex();
-    xnet_mutex_adp_lock(&xlog_mutex);
+    xnet_mutex_lock(&xlog_mutex);
 
     char buff[256] = { 0 };
     uint8_t* ptr2 = (uint8_t*)ptr;
@@ -644,5 +642,5 @@ void xlog_dump_all(const char* tag, void* ptr, size_t len) {
         xlog_log(XLOG_DEBUG, tag, "  %s", buff);
     }
 
-    xnet_mutex_adp_unlock(&xlog_mutex);
+    xnet_mutex_unlock(&xlog_mutex);
 }

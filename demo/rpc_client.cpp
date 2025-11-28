@@ -28,7 +28,7 @@ int client_close_handler(xChannel* channel, char* buf, int len) {
 //=============================================================================
 // 测试用例 1: 基本 RPC 调用测试
 //=============================================================================
-xTask test_basic_rpc(void* arg) {
+xCoroTask test_basic_rpc(void* arg) {
     xChannel* channel = static_cast<xChannel*>(arg);
     xlog_info("=== Test 1: Basic RPC Call ===");
 
@@ -61,7 +61,7 @@ xTask test_basic_rpc(void* arg) {
 //=============================================================================
 // 测试用例 2: 多次 RPC 调用测试
 //=============================================================================
-xTask test_multiple_rpc(void* arg) {
+xCoroTask test_multiple_rpc(void* arg) {
     xChannel* channel = static_cast<xChannel*>(arg);
     xlog_info("=== Test 2: Multiple RPC Calls ===");
 
@@ -88,7 +88,7 @@ xTask test_multiple_rpc(void* arg) {
 //=============================================================================
 // 测试用例 3: 错误处理测试
 //=============================================================================
-xTask test_error_handling(void* arg) {
+xCoroTask test_error_handling(void* arg) {
     xChannel* channel = static_cast<xChannel*>(arg);
     xlog_info("=== Test 3: Error Handling ===");
 
@@ -110,7 +110,7 @@ xTask test_error_handling(void* arg) {
 //=============================================================================
 // 测试用例 4: 字符串处理测试
 //=============================================================================
-xTask test_string_processing(void* arg) {
+xCoroTask test_string_processing(void* arg) {
     xChannel* channel = static_cast<xChannel*>(arg);
     xlog_info("=== Test 4: String Processing ===");
 
@@ -139,7 +139,7 @@ xTask test_string_processing(void* arg) {
 //=============================================================================
 // 测试用例 5: 综合测试
 //=============================================================================
-xTask test_comprehensive(void* arg) {
+xCoroTask test_comprehensive(void* arg) {
     xChannel* channel = static_cast<xChannel*>(arg);
     xlog_info("=== Test 5: Comprehensive Test ===");
 
@@ -211,7 +211,7 @@ void client_main() {
 
     // 事件循环
     while (true) {
-        aeFramePoll(el);
+        aeProcessEvents(el, AE_ALL_EVENTS | AE_DONT_WAIT);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 

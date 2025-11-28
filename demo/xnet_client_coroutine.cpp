@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
 
     // 运行调度器
     while (running) {
-        aeFramePoll(el);
+        aeProcessEvents(el, AE_ALL_EVENTS | AE_DONT_WAIT);
         xnet_sleep(500);  // 使用重命名后的函数
         if (send_msg(net_client, 1, true, st, (int)strlen(st)) > 0) {
         }
@@ -210,4 +210,3 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-

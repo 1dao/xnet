@@ -24,7 +24,7 @@ inline std::string pack_to_str(VariantType& var) {
 // ============================================================================
 
 // Redis operation simulation
-std::vector<VariantType> redis_get(XThreadContext* ctx, std::vector<VariantType>& args) {
+std::vector<VariantType> redis_get(xThread* ctx, std::vector<VariantType>& args) {
     // args[0] = key (XPackBuff)
     std::string key = pack_to_str(args[0]);
 
@@ -41,7 +41,7 @@ std::vector<VariantType> redis_get(XThreadContext* ctx, std::vector<VariantType>
 }
 
 // Compute task
-std::vector<VariantType> compute_task(XThreadContext* ctx, std::vector<VariantType>& args) {
+std::vector<VariantType> compute_task(xThread* ctx, std::vector<VariantType>& args) {
     int a = xpack_cast<int>(args[0]);
     int b = xpack_cast<int>(args[1]);
 
@@ -59,7 +59,7 @@ std::vector<VariantType> compute_task(XThreadContext* ctx, std::vector<VariantTy
 // Coroutine task - demonstrates RPC calls
 // ============================================================================
 
-xTask test_coroutine(void* arg) {
+xCoroTask test_coroutine(void* arg) {
     xlog_info_tag("[Coroutine]", "Started");
 
     // Call Redis thread to get data
@@ -94,7 +94,7 @@ xTask test_coroutine(void* arg) {
 // Comprehensive exception test coroutine
 // ============================================================================
 
-xTask comprehensive_exception_test(void* arg) {
+xCoroTask comprehensive_exception_test(void* arg) {
     int test_case = arg ? *(int*)arg : 0;
 
     xlog_info_tag("[Coroutine]", "Comprehensive exception test started - Test case: %d", test_case);

@@ -378,8 +378,8 @@ private:
     xMutex* m_mutex;
 };
 
-// Safe resume implementation for xTask
-bool xTask::resume_safe(void* param, xCoroutineLJ* lj) {
+// Safe resume implementation for xCoroTask
+bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
 if (!handle_ || handle_.done()) return false;
 
    // Save current LJ state
@@ -473,11 +473,11 @@ public:
 
     // xCoro definition inside xCoroService
     struct xCoro {
-        xTask task;
+        xCoroTask task;
         int coroutine_id;
         xCoroutineLJ lj;  // Hardware exception protection context
 
-        xCoro(xTask&& t, int id) : task(std::move(t)), coroutine_id(id) {
+        xCoro(xCoroTask&& t, int id) : task(std::move(t)), coroutine_id(id) {
             task.get_promise().coroutine_id = id;
             lj.env = nullptr;
             lj.sig = 0;
@@ -537,7 +537,7 @@ public:
         int old_id = _co_cid;
         _co_cid = coro_id;
 
-        xTask task;
+        xCoroTask task;
         xCoroutineLJ creation_lj;
         creation_lj.env = nullptr;
         creation_lj.sig = 0;
@@ -564,7 +564,7 @@ public:
             #endif
 
             xlog_err("=== END CREATION EXCEPTION REPORT ===");
-            task = xTask{};
+            task = xCoroTask{};
         }
 
         creation_lj.in_protected_call = false;

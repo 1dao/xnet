@@ -32,13 +32,7 @@
 
 #include "fmacros.h"
 
-#ifdef _WIN32
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
-    #include <windows.h>
-    #pragma comment(lib, "ws2_32.lib")  // 链接 Winsock 库
-
-#else
+#ifndef _WIN32
     #include <sys/types.h>
     #include <sys/socket.h>
     #include <sys/stat.h>
@@ -57,11 +51,6 @@
 #include <stdio.h>
 
 #include "anet.h"
-
-// Windows 下缺少 ssize_t 定义，手动补充
-// #ifdef _WIN32
-// typedef int ssize_t;
-// #endif
 
 static void anetSetError(char *err, const char *fmt, ...)
 {

@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <corecrt_search.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -70,6 +71,15 @@ static _declspec(thread) aeEventLoop* _net_ae = NULL;
 static __thread aeEventLoop* _net_ae = NULL;
 #endif
 
+#ifndef AE_USING_IOCP
+static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
+    char buf[64];
+    // 读取信号数据，避免fd一直处于可读状态
+    while (read(fd, buf, sizeof(buf)) > 0);
+    return AE_OK;
+}
+#endif
+
 aeEventLoop *aeCreateEventLoop(void) {
     aeEventLoop *eventLoop;
     int i;
@@ -77,14 +87,15 @@ aeEventLoop *aeCreateEventLoop(void) {
     eventLoop = (aeEventLoop*)zmalloc(sizeof(*eventLoop));
     if (!eventLoop) return NULL;
     memset(eventLoop, 0x00, sizeof(*eventLoop));
-    
+
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
-    eventLoop->maxfd = 0; 
+    eventLoop->maxfd = 0;
     eventLoop->beforesleep = NULL;
     eventLoop->efhead = 0;
     eventLoop->nrpc = 0;
+    eventLoop->fdWaitSlot = -1;
 
     for (int i = 0; i < AE_SETSIZE - 1; i++) {
         eventLoop->events[i].slot = i + 1;
@@ -99,6 +110,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     for (i = 0; i < AE_SETSIZE; i++)
         eventLoop->events[i].mask = AE_NONE;
     _net_ae = eventLoop;
+
     return eventLoop;
 }
 
@@ -109,8 +121,16 @@ aeEventLoop* aeGetCurEventLoop(void) {
 }
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
+    if (!eventLoop) return;
+#ifndef AE_USING_IOCP
+    if (eventLoop->signal_fd[0] >= 0) {
+        close(eventLoop->signal_fd[0]);
+        close(eventLoop->signal_fd[1]);
+    }
+#endif
     aeApiFree(eventLoop);
     zfree(eventLoop);
+    eventLoop = NULL;
 }
 
 void aeStop(aeEventLoop *eventLoop) {
@@ -338,7 +358,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
-    if (eventLoop->maxfd != 0 ||
+    if (eventLoop->maxfd != 0 || eventLoop->fdWaitSlot !=-1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         aeTimeEvent *shortest = NULL;
@@ -404,30 +424,6 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
     return processed; /* return the number of processed file/time events */
 }
 
-/* Wait for millseconds until the given file descriptor becomes
- * writable/readable/exception */
-int aeWait(xSocket fd, int mask, long long milliseconds) {
-    struct timeval tv;
-    fd_set rfds, wfds, efds;
-    int retmask = 0, retval;
-
-    tv.tv_sec = (long)milliseconds/1000;
-    tv.tv_usec = (long)(milliseconds%1000)*1000;
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    FD_ZERO(&efds);
-
-    if (mask & AE_READABLE) FD_SET(fd,&rfds);
-    if (mask & AE_WRITABLE) FD_SET(fd,&wfds);
-    if ((retval = select((int)fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
-        if (FD_ISSET(fd,&rfds)) retmask |= AE_READABLE;
-        if (FD_ISSET(fd,&wfds)) retmask |= AE_WRITABLE;
-        return retmask;
-    } else {
-        return retval;
-    }
-}
-
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {
@@ -452,4 +448,68 @@ char *aeGetApiName(void) {
 
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep) {
     eventLoop->beforesleep = beforesleep;
+}
+
+void aeCreateSignalFile(aeEventLoop* eventLoop) {
+    eventLoop->fdWaitSlot = eventLoop->efhead;
+
+#ifndef AE_USING_IOCP
+    if (eventLoop->signal_fd[0] != 0) return;
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, eventLoop->signal_fd) == 0) {
+        // 设置非阻塞
+        fcntl(eventLoop->signal_fd[0], F_SETFL, O_NONBLOCK);
+        fcntl(eventLoop->signal_fd[1], F_SETFL, O_NONBLOCK);
+
+        // 注册读事件
+        aeCreateFileEvent(eventLoop, eventLoop->signal_fd[1], AE_READABLE, aeSignalProc, NULL, NULL);
+    }
+#else
+    aeApiAddEvent(eventLoop, -1, 0, NULL);
+#endif
+}
+
+void aeDeleteSignalFile(aeEventLoop* eventLoop) {
+    int slot = eventLoop->fdWaitSlot;
+    if (slot == -1) return;
+    eventLoop->fdWaitSlot = -1;
+
+#ifndef AE_USING_IOCP
+    aeDeleteFileEvent(eventLoop, eventLoop->signal_fd[1], &eventLoop->events[slot], AE_READABLE);
+#else
+    aeApiDelEvent(eventLoop, -1, 0);
+#endif
+}
+
+void aeGetSignalFile(aeEventLoop *eventLoop, xSocket* fdSignal){
+#ifndef AE_USING_IOCP
+    *fdSignal = eventLoop->signal_fd[0];
+#else
+    *fdSignal = aeGetStateFD(eventLoop);
+#endif
+}
+
+/* Wait for millseconds until the given file descriptor becomes
+ * writable/readable/exception */
+int aeWait(xSocket fd, int mask, long long milliseconds) {
+    struct timeval tv;
+    fd_set rfds, wfds, efds;
+    int retmask = 0, retval;
+
+     tv.tv_sec = (long)milliseconds / 1000;
+     tv.tv_usec = (long)(milliseconds % 1000) * 1000;
+     FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    FD_ZERO(&efds);
+
+        if (mask & AE_READABLE) FD_SET(fd, &rfds);
+    if (mask & AE_WRITABLE) FD_SET(fd, &wfds);
+    if ((retval = select((int)fd + 1, &rfds, &wfds, &efds, &tv)) > 0) {
+        if (FD_ISSET(fd, &rfds)) retmask |= AE_READABLE;
+        if (FD_ISSET(fd, &wfds)) retmask |= AE_WRITABLE;
+        return retmask;
+
+    }
+    else {
+        return retval;
+    }
 }

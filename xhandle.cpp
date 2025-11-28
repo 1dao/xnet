@@ -85,7 +85,7 @@ struct xCoroArgsDeleter {
 };
 
 // POST协议的协程处理函数
-xTask coroutine_func_post(void* arg) {
+xCoroTask coroutine_func_post(void* arg) {
     std::unique_ptr<xCoroArgs, xCoroArgsDeleter> ctx(static_cast<xCoroArgs*>(arg));
 
     try {
@@ -109,7 +109,7 @@ xTask coroutine_func_post(void* arg) {
 }
 
 // RPC协议的协程处理函数
-xTask coroutine_func_rpc(void* arg) {
+xCoroTask coroutine_func_rpc(void* arg) {
     std::unique_ptr<xCoroArgs, xCoroArgsDeleter> ctx(static_cast<xCoroArgs*>(arg));
     XPackBuff result;
     int retcode = XNET_SUCCESS;

@@ -108,7 +108,7 @@ int on_packet(struct xChannel* s, char* buf, int len) {
     // 构建响应包
     if (need_return) {
         xlog_info("处理完成，长度:% d, 协议 : % d, 包ID : % d\n", pkg_len, protocol, pkg_id);
-    
+
         // 响应包头部长度：4+2+1+1+4=12字节
         char response[1024];
         uint32_t resp_pkg_len = handler_response_len +12;
@@ -193,10 +193,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     xlog_info("服务器启动，监听端口 %d", port);
-    
+
     aeMain(el);
     while (1) {
-        aeFramePoll(el);
+        aeProcessEvents(el, AE_ALL_EVENTS | AE_DONT_WAIT);
         sleep(50);
     }
     aeDeleteEventLoop(el);

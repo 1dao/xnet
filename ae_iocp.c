@@ -41,8 +41,8 @@ static void aeApiFree(aeEventLoop* eventLoop) {
 }
 
 static int aeApiAddEvent(aeEventLoop* eventLoop, xSocket fd, int mask, aeFileEvent* fe) {
-    aeApiState* state = eventLoop->apidata;
-    if (CreateIoCompletionPort((HANDLE)fd, state->iocp, (ULONG_PTR)fe, 0) == NULL) {
+    aeApiState* state = eventLoop->apidata; // -1 for signal notify
+    if ((int)fd != -1 && CreateIoCompletionPort((HANDLE)fd, state->iocp, (ULONG_PTR)fe, 0) == NULL) {
         return -1;
     }
     state->eventCount++;
@@ -59,7 +59,7 @@ static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
     DWORD timeout = tvp ? (tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : INFINITE;
     int numevents = 0;
 
-    if (state->eventCount == 0) {
+    if (state->eventCount == 0 && state) {
         Sleep(timeout);
         return 0;
     }
@@ -104,6 +104,11 @@ static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
     }
 
     return numevents;
+}
+
+static xSocket aeGetStateFD(aeEventLoop *eventLoop){
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    return (xSocket)state->iocp;
 }
 
 static char* aeApiName(void) {

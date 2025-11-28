@@ -4,7 +4,7 @@
 #include "zmalloc.h"
 #include <string.h>
 
-#ifdef AE_USING_IOCP
+#ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
 #include <mswsock.h>

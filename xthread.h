@@ -1,14 +1,8 @@
-// xthread.h - 线程池与跨线程RPC
+﻿// xthread.h - 线程池与跨线程RPC
 // 支持预定义线程ID，协程内同步调用，复用xcoroutine框架
 
 #ifndef _XTHREAD_H
 #define _XTHREAD_H
-
-#include "xcoroutine.h"
-#include "xpack.h"
-#include "xmutex.h"
-#include "xerrno.h"
-#include "xlog.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -17,6 +11,12 @@
 #include <pthread.h>
 #include <unistd.h>
 #endif
+
+#include "xcoroutine.h"
+#include "xpack.h"
+#include "xmutex.h"
+#include "xerrno.h"
+#include "xlog.h"
 
 // ============================================================================
 // 预定义线程ID (0-99)
@@ -45,46 +45,73 @@
 #include <queue>
 #include <vector>
 
-struct XThreadContext;
+struct xThread;
 
 // 任务函数类型: (ctx, args) -> results
-using XThreadFunc = std::function<std::vector<VariantType>(XThreadContext*, std::vector<VariantType>&)>;
+using XThreadFunc = std::function<std::vector<VariantType>(xThread*, std::vector<VariantType>&)>;
+
+enum xthrTaskType {
+    XTHR_TASK_NORMAL = 0,    // 普通任务
+    XTHR_TASK_RESUME = 1     // 协程恢复任务
+};
 
 // 任务结构
-struct XThreadTask {
+struct xthrTask {
+    xthrTaskType             type;
     XThreadFunc              func;
     std::vector<VariantType> args;
     uint32_t                 wait_id;        // 用于RPC回调(复用xcoroutine的wait机制)
     int                      source_thread;
 
-    XThreadTask() : wait_id(0), source_thread(0) {}
+    xthrTask() : type(XTHR_TASK_NORMAL), wait_id(0), source_thread(0) {}
+
+    static xthrTask make_normal(XThreadFunc func, std::vector<VariantType> args = {}) {
+        xthrTask task;
+        task.type = XTHR_TASK_NORMAL;
+        task.func = std::move(func);
+        task.args = std::move(args);
+        return task;
+    }
+
+    static xthrTask make_resume(uint32_t wait_id, std::vector<VariantType> result) {
+        xthrTask task;
+        task.type = XTHR_TASK_RESUME;
+        task.wait_id = wait_id;
+        task.args = std::move(result);
+        return task;
+    }
 };
 
 // ============================================================================
 // 任务队列(线程安全，支持IOCP/socketpair唤醒)
 // ============================================================================
 
-class XTaskQueue {
+class xthrQueue {
 public:
-    XTaskQueue();
-    ~XTaskQueue();
+    xthrQueue(bool xwait_);
+    ~xthrQueue();
 
     bool init();
     void uninit();
-    bool push(XThreadTask&& task);
-    std::vector<XThreadTask> pop_all();
+    bool push(xthrTask&& task);
+    std::vector<xthrTask> pop_all();
     bool wait(int timeout_ms);
 
 #ifdef _WIN32
-    HANDLE get_iocp() const { return iocp_; }
+    HANDLE get_iocp() const    { return iocp_; }
+    void set_iocp(HANDLE iocp) { iocp_ = iocp; }
 #else
-    int get_notify_fd() const { return fds_[1]; }
+    int get_notify_fd() const  { return fds_[0]; }
+    void set_notify_fd(int fd) { fds_[0] = fd; }
 #endif
+    void set_xwait(bool wait)  { xwait_ = wait; }
+    bool get_xwait() const     { return xwait_; }
 
 private:
-    std::queue<XThreadTask> queue_;
+    std::queue<xthrTask>    queue_;
     xMutex                  lock_;
     int                     pending_;
+    bool                    xwait_;
 #ifdef _WIN32
     HANDLE                  iocp_;
 #else
@@ -96,11 +123,11 @@ private:
 // 线程上下文
 // ============================================================================
 
-struct XThreadContext {
+struct xThread {
     int                     id;
     const char*             name;
     std::atomic<bool>       running;
-    XTaskQueue              queue;
+    xthrQueue              queue;
     void*                   userdata;
 
 #ifdef _WIN32
@@ -109,11 +136,11 @@ struct XThreadContext {
     pthread_t               handle;
 #endif
 
-    void (*on_init)(XThreadContext*);
-    void (*on_update)(XThreadContext*);
-    void (*on_cleanup)(XThreadContext*);
+    void (*on_init)(xThread*);
+    void (*on_update)(xThread*);
+    void (*on_cleanup)(xThread*);
 
-    XThreadContext();
+    xThread(bool xwait_ = false);
 };
 
 // ============================================================================
@@ -124,18 +151,19 @@ bool xthread_init();
 void xthread_uninit();
 
 // 注册工作线程(创建新线程)
-bool xthread_register(int id, const char* name,
-                      void (*on_init)(XThreadContext*) = nullptr,
-                      void (*on_update)(XThreadContext*) = nullptr,
-                      void (*on_cleanup)(XThreadContext*) = nullptr);
+bool xthread_register(int id, bool xwait_, const char* name,
+                      void (*on_init)(xThread*) = nullptr,
+                      void (*on_update)(xThread*) = nullptr,
+                      void (*on_cleanup)(xThread*) = nullptr);
 
 // 注册主线程(不创建新线程)
-bool xthread_register_main(int id, const char* name);
+bool xthread_register_main(int id, bool xwait_, const char* name);
 
 void xthread_unregister(int id);
-XThreadContext* xthread_get(int id);
+xThread* xthread_get(int id);
 int xthread_current_id();
-XThreadContext* xthread_current();
+xThread* xthread_current();
+int xthread_set_notify(void* fd);
 
 // 主线程调用：处理任务队列
 int xthread_update();

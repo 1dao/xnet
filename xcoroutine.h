@@ -1,4 +1,4 @@
-// xcoroutine.h - Safe coroutine implementation with hardware exception protection
+﻿// xcoroutine.h - Safe coroutine implementation with hardware exception protection
 #ifndef _XCOROUTINE_H
 #define _XCOROUTINE_H
 
@@ -23,21 +23,9 @@
 #include "xpack.h"
 #include "xlog.h"
 
-// Hardware exception protection structure (similar to KSLJ in daemon.c)
-struct xCoroutineLJ {
-    #ifdef _WIN32
-        jmp_buf buf;
-    #else
-        sigjmp_buf buf;  // Linux下使用sigjmp_buf
-    #endif
-    void* env;
-    int sig;
-    bool in_protected_call;
-};
-
 // 协程函数类型
-struct xTask;
-typedef xTask(*fnCoro)(void*);
+struct xCoroTask;
+typedef xCoroTask(*fnCoro)(void*);
 
 // 初始化/销毁协程管理器
 bool coroutine_init();
@@ -45,6 +33,9 @@ void coroutine_uninit();
 
 // 运行协程
 int coroutine_run(fnCoro func, void* arg);
+
+// 协程等待
+void coroutine_sleep(int coroutine_id, int );
 
 // 恢复协程
 bool coroutine_resume(int coroutine_id, void* param);
@@ -56,6 +47,18 @@ bool coroutine_is_done(int coroutine_id);
 size_t coroutine_get_active_count();
 int coroutine_self_id();
 
+// Hardware exception protection structure
+struct xCoroutineLJ {
+    #ifdef _WIN32
+        jmp_buf buf;
+    #else
+        sigjmp_buf buf;  // Linux下使用sigjmp_buf
+    #endif
+    void* env;
+    int sig;
+    bool in_protected_call;
+};
+
 // Final Awaiter
 struct xFinAwaiter {
     int coroutine_id;
@@ -66,17 +69,17 @@ struct xFinAwaiter {
 };
 
 // 协程任务类型
-struct xTask {
+struct xCoroTask {
     struct promise_type {
         int coroutine_id = 0;
         std::exception_ptr exception_ptr = nullptr;
-        int hardware_signal = 0;  // 新增：硬件异常信号
-        bool exception_handled = false;  // 新增：标记异常是否已处理
+        int hardware_signal = 0;            // 硬件异常信号
+        bool exception_handled = false;     // 标记异常是否已处理
 
         promise_type() = default;
 
-        xTask get_return_object() {
-            return xTask{ std::coroutine_handle<promise_type>::from_promise(*this) };
+        xCoroTask get_return_object() {
+            return xCoroTask{ std::coroutine_handle<promise_type>::from_promise(*this) };
         }
 
         std::suspend_never initial_suspend() { return {}; }
@@ -169,12 +172,12 @@ struct xTask {
 
     std::coroutine_handle<promise_type> handle_;
 
-    xTask() : handle_(nullptr) {}
-    xTask(std::coroutine_handle<promise_type> h) : handle_(h) {}
-    xTask(const xTask&) = delete;
-    xTask& operator=(const xTask&) = delete;
-    xTask(xTask&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
-    xTask& operator=(xTask&& other) noexcept {
+    xCoroTask() : handle_(nullptr) {}
+    xCoroTask(std::coroutine_handle<promise_type> h) : handle_(h) {}
+    xCoroTask(const xCoroTask&) = delete;
+    xCoroTask& operator=(const xCoroTask&) = delete;
+    xCoroTask(xCoroTask&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
+    xCoroTask& operator=(xCoroTask&& other) noexcept {
         if (this != &other) {
             if (handle_) handle_.destroy();
             handle_ = other.handle_;
@@ -182,7 +185,7 @@ struct xTask {
         }
         return *this;
     }
-    ~xTask() { if (handle_) handle_.destroy(); }
+    ~xCoroTask() { if (handle_) handle_.destroy(); }
 
     bool done() const {
         return !handle_ || handle_.done();

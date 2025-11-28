@@ -2,7 +2,13 @@
 #define _REDIS_FMACRO_H
 
 #ifdef _WIN32
+#ifndef _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#endif
 #include <WinSock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#pragma comment(lib, "ws2_32.lib")
 #endif
 
 #define _BSD_SOURCE

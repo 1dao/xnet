@@ -111,6 +111,12 @@ typedef struct aeEventLoop {
     int stop;
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
+
+    // 信号fd相关字段
+#ifndef AE_USING_IOCP
+    xSocket signal_fd[2];      // 信号fd对 [0]:读端, [1]:写端
+#endif
+    int fdWaitSlot;                // 是否ae创建的信号fd
 } aeEventLoop;
 
 /* Prototypes */
@@ -128,9 +134,12 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(xSocket fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);
-void aeFramePoll(aeEventLoop* eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
+
+void aeCreateSignalFile(aeEventLoop* eventLoop);
+void aeDeleteSignalFile(aeEventLoop *eventLoop);
+void aeGetSignalFile(aeEventLoop *eventLoop, xSocket* fdSignal);
 
 #ifdef __cplusplus
 }

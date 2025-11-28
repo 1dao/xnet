@@ -90,6 +90,11 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     return numevents;
 }
 
+static xSocket aeGetStateFD(aeEventLoop *eventLoop){
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    return (xSocket)state->epfd;
+}
+
 static char *aeApiName(void) {
     return (char*)"epoll";
 }
