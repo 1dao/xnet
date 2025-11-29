@@ -33,6 +33,21 @@
 #include <sys/event.h>
 #include <sys/time.h>
 
+#include <errno.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
+__attribute__((noreturn))
+void panic(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "PANIC: ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+    exit(EXIT_FAILURE);
+}
+
 typedef struct aeApiState {
     int kqfd;
     struct kevent *events;
@@ -74,7 +89,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    anetCloexec(state->kqfd);
+    //anetCloexec(state->kqfd);
     state->eventsMask = zmalloc(EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
     memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
     eventLoop->apidata = state;

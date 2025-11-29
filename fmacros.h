@@ -88,5 +88,10 @@
 #ifdef _WIN32
     #define AE_USING_IOCP
 #endif
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#define HAVE_KQUEUE 1
+#else
+#error "fdafafdsfadsfda"
+#endif
 
 #endif
