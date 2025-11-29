@@ -5,6 +5,7 @@
 #include "xpack.h"
 #include "xchannel.inl"
 
+
 int _xrpc_resp(xChannel* s, int co_id, uint32_t wait_id, int retcode, XPackBuff& res) {
     uint16_t is_rpc = 2;
     int remain = (int)s->wlen - (int)(s->wpos - s->wbuf);

@@ -12,7 +12,6 @@
 #include "xchannel.inl"
 #include "xerrno.h"
 
-
 template<typename... Args>
 xAwaiter xrpc_pcall(xChannel* s, uint16_t protocol, Args&&... args) {
     xAwaiter awaiter;

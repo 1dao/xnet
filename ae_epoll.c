@@ -3,6 +3,22 @@
  * Released under the BSD license. See the COPYING file for more info. */
 
 #include <sys/epoll.h>
+#include <errno.h>
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+__attribute__((noreturn))
+void panic(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "PANIC: ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+    exit(EXIT_FAILURE);
+}
 
 typedef struct aeApiState {
     int epfd;

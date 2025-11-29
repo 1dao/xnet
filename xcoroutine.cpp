@@ -27,6 +27,7 @@ static thread_local xCoroutineLJ* g_current_lj = nullptr;
 // 添加必要的头文件
 #include <dlfcn.h>
 #include <link.h>  // 用于获取模块信息
+#include <execinfo.h>
 
 // 辅助函数：获取模块基地址
 static uintptr_t get_module_base_address() {

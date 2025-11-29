@@ -9,6 +9,9 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #pragma comment(lib, "ws2_32.lib")
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #endif
 
 #define _BSD_SOURCE
@@ -19,7 +22,9 @@
 #define _XOPEN_SOURCE
 #endif
 
+#ifndef _LARGEFILE_SOURCE
 #define _LARGEFILE_SOURCE
+#endif
 #define _FILE_OFFSET_BITS 64
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #ifdef _WIN32
@@ -44,13 +49,12 @@
 #else
     #include <stdint.h>
     #include <stddef.h>
-    #ifndef _WIN32
-        // Linux/Unix 平台类型定义
-        #ifndef BOOL
-            #define BOOL int
-            #define TRUE 1
-            #define FALSE 0
-        #endif
+
+    // Linux/Unix 平台类型定义
+    #ifndef BOOL
+        #define BOOL int
+        #define TRUE 1
+        #define FALSE 0
     #endif
 #endif
 
@@ -73,6 +77,16 @@
         #define unlikely(x) (x)
         #define likely(x)   (x)
     #endif
+#endif
+
+#ifdef __linux__
+#define HAVE_EPOLL 1
+#endif
+
+/* Macros */
+#define AE_NOTUSED(V) ((void) V)
+#ifdef _WIN32
+    #define AE_USING_IOCP
 #endif
 
 #endif

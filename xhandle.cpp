@@ -91,7 +91,7 @@ xCoroTask coroutine_func_post(void* arg) {
     try {
         xlog_info("xhandle Starting POST protocol %d", ctx->protocol);
 
-        auto handler = static_cast<ProtocolPostHandler>(ctx->handler);
+        auto handler = reinterpret_cast<ProtocolPostHandler>(ctx->handler);
         int ret = handler(ctx->channel, *(ctx->args));
 
         if (ret < 0) {
@@ -117,7 +117,7 @@ xCoroTask coroutine_func_rpc(void* arg) {
     try {
         xlog_debug("xhandle Starting RPC protocol %d, wait_id: %u", ctx->protocol, ctx->wait_id);
 
-        auto handler = static_cast<ProtocolRPCHandler>(ctx->handler);
+        auto handler = reinterpret_cast<ProtocolRPCHandler>(ctx->handler);
         result = handler(ctx->channel, *(ctx->args));
 
         xlog_debug("xhandle RPC protocol %d completed", ctx->protocol);

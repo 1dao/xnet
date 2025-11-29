@@ -134,7 +134,7 @@ bool xthrQueue::push(xthrTask&& task) {
             xnet_mutex_unlock(&lock_);
         }
 #else
-        if(write(fds_[1], "!", 1) < 1){
+        if(write(fds_[0], "!", 1) < 1){
             xnet_mutex_lock(&lock_);
             pending_ = 0;
             xnet_mutex_unlock(&lock_);
@@ -414,16 +414,20 @@ xThread* xthread_current() { return xthread_get(tls_get()); }
 int xthread_set_notify(void* fd) {
     xThread* ctx = xthread_current();
     if (!ctx) return -1;
-
-    #ifdef _WIN32
-        ctx->queue.set_iocp((HANDLE)fd);
-    #else
-        ctx->queue.set_notify_fd((int)fd);
-    #endif
-    if ((int)fd > 0) {
+    int fd_int = -1;
+    if (fd != nullptr) {
+        fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
+    }
+    if (fd_int > 0) {
         assert(ctx->queue.get_xwait());
     }
-    xlog_warn("xthread_set_notify:%s, %d", ctx->name?ctx->name:"", (int)(fd));
+    #ifdef _WIN32
+        ctx->queue.set_iocp(fd_int);
+    #else
+        ctx->queue.set_notify_fd(fd_int);
+    #endif
+
+    xlog_warn("xthread_set_notify:%s, %d", ctx->name?ctx->name:"", (fd_int));
     return 0;
 }
 

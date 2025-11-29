@@ -1,46 +1,64 @@
 CC = gcc
 CXX = g++
-CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -fcoroutines -D__cpp_coroutines=201902L -Wall -Wextra -I .
+CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -fcoroutines -D__cpp_coroutines=201902L -I .
 CFLAGS = -Wall -Wextra -I .
-# 定义链接选项变量，默认为空
-LDFLAGS = 
 
-# 判断是否为 Windows 系统，是的话添加 -lws2_32
+# 添加必要的系统头文件路径和定义
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+    CFLAGS += -D_GNU_SOURCE
+    CXXFLAGS += -D_GNU_SOURCE
+endif
+
+# 定义链接选项变量
+LDFLAGS =
+
+# 判断操作系统并设置相应的链接选项
 ifeq ($(OS),Windows_NT)
     LDFLAGS += -lws2_32
+    TARGET_EXT = .exe
 else
-	LDFLAGS += -lpthread
+    LDFLAGS += -lpthread
+    # 添加必要的系统库
+    LDFLAGS += -lm
+    TARGET_EXT =
 endif
 
 # 构建目录
 BUILD_DIR = build
 OBJS_DIR = $(BUILD_DIR)/objs
 
-# 源文件
-SRCS = ae.c anet.c request.c response.c zmalloc.c xchannel.c xlog.c
-SVR_SRCS = demo/xnet_svr_iocp.c
-CLI_SRCS = coroutine.cpp demo/xnet_client_iocp.cpp # 改为 .cpp  
+# 源文件 - 将C和C++文件分开
+C_SRCS = ae.c anet.c zmalloc.c xlog.c
+CPP_SRCS = xchannel.cpp xcoroutine.cpp xrpc.cpp xthread.cpp xchannel_pdu.cpp xhandle.cpp
+SVR_SRCS = demo/xthread_aeweakup.cpp
+CLI_SRCS = demo/xrpc_client.cpp
 
 # 目标文件（在构建目录中）
-OBJS = $(addprefix $(OBJS_DIR)/, $(SRCS:.c=.o))
-SVR_OBJS = $(addprefix $(OBJS_DIR)/, $(SVR_SRCS:.c=.o))
-CLI_OBJS = $(addprefix $(OBJS_DIR)/, $(CLI_SRCS:.cpp=.o))  # 改为 .cpp=.o
+C_OBJS = $(addprefix $(OBJS_DIR)/, $(C_SRCS:.c=.o))
+CPP_OBJS = $(addprefix $(OBJS_DIR)/, $(CPP_SRCS:.cpp=.o))
+SVR_OBJS = $(addprefix $(OBJS_DIR)/, $(SVR_SRCS:.cpp=.o))
+CLI_OBJS = $(addprefix $(OBJS_DIR)/, $(CLI_SRCS:.cpp=.o))
+
+# 合并所有对象文件
+OBJS = $(C_OBJS) $(CPP_OBJS)
 
 # 可执行文件输出目录
 TARGET_DIR = bin
 
-all : $(TARGET_DIR)/svr $(TARGET_DIR)/client
+# 默认目标
+all : $(TARGET_DIR)/svr$(TARGET_EXT) $(TARGET_DIR)/client$(TARGET_EXT)
 
 # 创建必要的目录
 $(shell mkdir -p $(OBJS_DIR)/demo $(TARGET_DIR))
 
-# 服务器程序（使用 gcc 链接）
-$(TARGET_DIR)/svr : $(OBJS) $(SVR_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+# 服务器程序（使用 g++ 链接以确保C++运行时正确链接）
+$(TARGET_DIR)/svr$(TARGET_EXT) : $(OBJS) $(SVR_OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
-# 客户端程序（使用 g++ 链接，因为包含 C++ 代码）
-$(TARGET_DIR)/client : $(OBJS) $(CLI_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+# 客户端程序（使用 g++ 链接）
+$(TARGET_DIR)/client$(TARGET_EXT) : $(OBJS) $(CLI_OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
 # C 文件编译规则
 $(OBJS_DIR)/%.o : %.c
@@ -62,19 +80,42 @@ $(OBJS_DIR)/demo/%.o : demo/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ -c $<
 
-clean :
+# 依赖关系生成（可选，用于自动处理头文件依赖）
+DEPFLAGS = -MT $@ -MMD -MP -MF $(OBJS_DIR)/$*.d
+
+# 包含依赖文件
+-include $(OBJS:.o=.d)
+
+# 清理目标
+clean:
 	rm -rf $(BUILD_DIR)
-	rm -rf bin
+	rm -rf $(TARGET_DIR)
 
 # 单独编译客户端的快捷目标
-cli: $(TARGET_DIR)/client
+cli: $(TARGET_DIR)/client$(TARGET_EXT)
 
-# 单独编译服务器的快捷目标  
-svr: $(TARGET_DIR)/svr
+# 单独编译服务器的快捷目标
+svr: $(TARGET_DIR)/svr$(TARGET_EXT)
 
 # 显示目录结构
 tree:
 	@echo "Build directory structure:"
 	@find $(BUILD_DIR) -type f -o -type d | sort
 
-.PHONY: all clean cli svr tree
+# 调试信息目标
+debug:
+	@echo "C_SRCS: $(C_SRCS)"
+	@echo "CPP_SRCS: $(CPP_SRCS)"
+	@echo "C_OBJS: $(C_OBJS)"
+	@echo "CPP_OBJS: $(CPP_OBJS)"
+	@echo "UNAME_S: $(UNAME_S)"
+
+# 安装依赖（示例，根据实际需要调整）
+install-deps:
+ifeq ($(UNAME_S),Linux)
+	@echo "Installing build dependencies..."
+	# 添加实际的包安装命令，例如：
+	# sudo apt-get install build-essential
+endif
+
+.PHONY: all clean cli svr tree debug install-deps

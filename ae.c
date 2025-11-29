@@ -30,7 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <corecrt_search.h>
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -39,6 +39,11 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
+#include <search.h>
+#include <sys/socket.h>  // For AF_UNIX, SOCK_STREAM
+#include <fcntl.h>       // For fcntl, F_SETFL, O_NONBLOCK
+#else
+    #include <corecrt_search.h>
 #endif
 #include "ae.h"
 #include "zmalloc.h"
@@ -71,6 +76,7 @@ static __thread aeEventLoop* _net_ae = NULL;
 #endif
 
 #ifndef AE_USING_IOCP
+#include "xlog.h"
 static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
     char buf[64];
     // 读取信号数据，避免fd一直处于可读状态
@@ -196,7 +202,6 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     aeFileProc *proc, void *clientData, aeFileEvent** ev) {
     //if (fd >= AE_SETSIZE) return AE_ERR;
     if (eventLoop->efhead == -1) return AE_ERR;
-
     /* Resize the events and fired arrays if the file
      * descriptor exceeds the current number of events. */
     if (unlikely(fd >= eventLoop->nevents)) {
@@ -211,13 +216,15 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
             eventLoop->events[i].mask = AE_NONE;
         eventLoop->nevents = newnevents;
     }
-
     aeFileEvent *fe = &eventLoop->events[eventLoop->efhead];
     eventLoop->efhead = fe->slot;
-    *ev = fe;
+    if(ev)
+        *ev = fe;
 
-    if (aeApiAddEvent(eventLoop, fd, mask, fe) == -1)
+    if (aeApiAddEvent(eventLoop, fd, mask, fe) == -1){
         return AE_ERR;
+    }
+
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
@@ -537,6 +544,7 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
     eventLoop->beforesleep = beforesleep;
 }
 
+
 void aeCreateSignalFile(aeEventLoop* eventLoop) {
     eventLoop->fdWaitSlot = eventLoop->efhead;
 
@@ -546,7 +554,6 @@ void aeCreateSignalFile(aeEventLoop* eventLoop) {
         // 设置非阻塞
         fcntl(eventLoop->signal_fd[0], F_SETFL, O_NONBLOCK);
         fcntl(eventLoop->signal_fd[1], F_SETFL, O_NONBLOCK);
-
         // 注册读事件
         aeCreateFileEvent(eventLoop, eventLoop->signal_fd[1], AE_READABLE, aeSignalProc, NULL, NULL);
     }

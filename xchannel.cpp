@@ -381,10 +381,14 @@ int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, i
         return AE_OK;
     }
 #else
+    /*
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
     xSocket cfd = anetTcpAccept(NULL, fd, (struct sockaddr*)&sa, &salen);
-
+    */
+    int cport;
+    char cip[128];
+    xSocket cfd = anetTcpAccept(NULL, fd, cip, &cport);
     if (cfd == ANET_ERR) {
         printf("Accept error on fd: %d\n", fd);
         return AE_ERR;
@@ -524,10 +528,10 @@ static inline int xchannel_post(xChannel* s, int len) {
 
     if (slen == trans) {
         s->wpos = s->wbuf;
-    }
-    else {
-        memcpy(s->wbuf, buf + trans, slen - trans);
-        s->wpos = slen - trans;
+    } else {
+        //memcpy(s->wbuf, buf + trans, slen - trans);
+        memmove(s->wbuf, s->wbuf + trans, slen - trans);
+        s->wpos = s->wbuf+slen-trans;
     }
 #else
     aeFileEvent* ev = s->ev;

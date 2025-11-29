@@ -55,11 +55,7 @@ extern "C" {
 #define AE_DONT_WAIT 4
 #define AE_NOMORE -1
 
-/* Macros */
-#define AE_NOTUSED(V) ((void) V)
-#ifdef _WIN32
-    #define AE_USING_IOCP
-#endif
+
 
 struct aeEventLoop;
 
