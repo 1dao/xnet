@@ -76,11 +76,10 @@ static __thread aeEventLoop* _net_ae = NULL;
 #endif
 
 #ifndef AE_USING_IOCP
-#include "xlog.h"
 static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
     char buf[64];
     // 读取信号数据，避免fd一直处于可读状态
-    while (read(fd, buf, sizeof(buf)) > 0);
+    while (read((int)clientData, buf, sizeof(buf)) > 0);
     return AE_OK;
 }
 #endif
@@ -220,7 +219,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     eventLoop->efhead = fe->slot;
     if(ev)
         *ev = fe;
-
+    
     if (aeApiAddEvent(eventLoop, fd, mask, fe) == -1){
         return AE_ERR;
     }
@@ -228,7 +227,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
-    fe->clientData = clientData;
+    fe->clientData = clientData?clientData:fd;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;

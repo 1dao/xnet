@@ -63,18 +63,14 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileEvent* 
     struct epoll_event ee = {0};
     /* If the fd was already monitored for some event, we need a MOD
      * operation. Otherwise we need an ADD operation. */
-    int op = eventLoop->events[fd].mask == AE_NONE ?
+    int op = fe->mask == AE_NONE ?
             EPOLL_CTL_ADD : EPOLL_CTL_MOD;
 
     ee.events = 0;
-    mask |= eventLoop->events[fd].mask; /* Merge old events */
+    mask |= fe->mask; /* Merge old events */
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
-    ee.data.u64 = 0; /* avoid valgrind warning */
-    ee.data.fd = fd;
-    ee.data.u64 = 0;
-    ee.data.ptr = (void*)fe;
-
+    ee.data.ptr = fe;
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
     return 0;
 }

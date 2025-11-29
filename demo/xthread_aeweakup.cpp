@@ -312,7 +312,7 @@ int main() {
         xlog_err("Failed to create event loop");
         return -1;
     }
-    xlog_init(XLOG_DEBUG, true, true, nullptr);
+    xlog_init(XLOG_DEBUG, true, true, "logs/xlog.log");
     xlog_set_show_thread_name(true);
     coroutine_init();
     xthread_init();
