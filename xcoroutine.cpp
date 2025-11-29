@@ -1,7 +1,6 @@
 // xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
 
 #include "xcoroutine.h"
-#include <coroutine>
 #include <unordered_map>
 #include <memory>
 #include <iostream>
@@ -26,8 +25,15 @@ static thread_local xCoroutineLJ* g_current_lj = nullptr;
 #ifndef _WIN32
 // 添加必要的头文件
 #include <dlfcn.h>
-#include <link.h>  // 用于获取模块信息
 #include <execinfo.h>
+
+// macOS 上没有 link.h，使用替代方案
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
+#else
+#include <link.h>  // 用于获取模块信息（仅 Linux）
+#endif
 
 // 辅助函数：获取模块基地址
 static uintptr_t get_module_base_address() {
@@ -50,6 +56,36 @@ static void print_address_info(uintptr_t addr, const char* prefix) {
     }
 }
 
+// macOS 特定的堆栈跟踪辅助函数
+#ifdef __APPLE__
+static void print_macos_stack_trace() {
+    void* callstack[128];
+    int frames = backtrace(callstack, 128);
+    char** symbols = backtrace_symbols(callstack, frames);
+    
+    xlog_err("Call stack (%d frames):", frames);
+    for (int i = 0; i < frames && i < 8; ++i) {
+        if (symbols) {
+            xlog_err("  #%d: %s", i, symbols[i]);
+        } else {
+            Dl_info dl_info;
+            if (dladdr(callstack[i], &dl_info)) {
+                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
+                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
+                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
+                xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
+            } else {
+                xlog_err("  #%d: 0x%p", i, callstack[i]);
+            }
+        }
+    }
+    
+    if (symbols) {
+        free(symbols);
+    }
+}
+#endif
+
 static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
     if (g_current_lj && g_current_lj->in_protected_call) {
         g_current_lj->sig = sig;
@@ -63,17 +99,27 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
                 sig == SIGBUS ? "SIGBUS" : "Unknown");
 
         // 打印异常地址信息
-        print_address_info((uintptr_t)info->si_addr, "Fault address");
+        if (info && info->si_addr) {
+            print_address_info((uintptr_t)info->si_addr, "Fault address");
+        }
 
         // 如果是SIGSEGV，提供更多信息
-        if (sig == SIGSEGV && info->si_code > 0) {
+        if (sig == SIGSEGV && info && info->si_code > 0) {
             const char* access_type = "unknown";
+#ifdef __linux__
             if (info->si_code == SEGV_MAPERR) access_type = "address not mapped";
             else if (info->si_code == SEGV_ACCERR) access_type = "invalid permissions";
+#elif defined(__APPLE__)
+            if (info->si_code == SEGV_MAPERR) access_type = "address not mapped";
+            else if (info->si_code == SEGV_ACCERR) access_type = "invalid permissions";
+#endif
             xlog_err("Access violation type: %s", access_type);
         }
 
         // 获取调用栈
+#ifdef __APPLE__
+        print_macos_stack_trace();
+#else
         void* callstack[128];
         int frames = backtrace(callstack, 128);
 
@@ -90,6 +136,7 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
                 xlog_err("  #%d: 0x%p", i, callstack[i]);
             }
         }
+#endif
         xlog_err("=== END EXCEPTION REPORT ===");
 
         siglongjmp(g_current_lj->buf, 1);
@@ -100,6 +147,7 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
         raise(sig);
     }
 }
+
 // 安装信号处理器
 static void install_signal_handlers() {
     struct sigaction sa;
@@ -115,7 +163,7 @@ static void install_signal_handlers() {
     sigaction(SIGTRAP, &sa, nullptr);  // 断点/跟踪陷阱
     sigaction(SIGABRT, &sa, nullptr);  // 中止信号
 
-    xlog_info("Linux signal handlers installed");
+    xlog_info("Unix signal handlers installed");
 }
 #else
 #include <windows.h>
@@ -441,7 +489,7 @@ public:
     std::atomic<uint32_t> next_wait_id_{ 0 };
 
     struct PendingWait {
-        std::coroutine_handle<> handle = nullptr;
+        std_coro::coroutine_handle<> handle = nullptr;
         std::unique_ptr<std::vector<VariantType>> result;
         bool done = false;
         int coro_id = -1;
@@ -638,7 +686,7 @@ public:
         return count;
     }
 private:
-    void resume_with_hw_protection(std::coroutine_handle<> handle, int coro_id, const char* context) {
+    void resume_with_hw_protection(std_coro::coroutine_handle<> handle, int coro_id, const char* context) {
     if (!handle || handle.done()) return;
 
         // 创建临时的硬件保护上下文
@@ -701,8 +749,8 @@ private:
        }
 public:
     // -------------------- Wait related --------------------
-    void register_waiter(uint32_t wait_id, std::coroutine_handle<> h, int coro_id) {
-        std::coroutine_handle<> to_resume = nullptr;
+    void register_waiter(uint32_t wait_id, std_coro::coroutine_handle<> h, int coro_id) {
+        std_coro::coroutine_handle<> to_resume = nullptr;
         int resume_coro_id = -1;
         {
             XMutexGuard lock(&wait_mutex);
@@ -720,7 +768,7 @@ public:
     }
 
     void resume_waiter(uint32_t wait_id, std::vector<VariantType>&& resp) {
-        std::coroutine_handle<> to_resume = nullptr;
+        std_coro::coroutine_handle<> to_resume = nullptr;
         int resume_coro_id = -1;
         {
             XMutexGuard lock(&wait_mutex);
@@ -748,11 +796,15 @@ public:
 };
 
 // -------------------- Awaiter implementation --------------------
-std::coroutine_handle<> xFinAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
+std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
     if (_co_svs && coroutine_id > 0) {
         _co_svs->remove_coroutine(coroutine_id);
     }
-    return std::noop_coroutine();
+#if defined(__APPLE__) || (defined(__clang__) && __clang_major__ < 12)
+    return std_coro::coroutine_handle<>();
+#else
+    return std_coro::noop_coroutine();
+#endif
 }
 
 xAwaiter::xAwaiter() noexcept
@@ -767,7 +819,7 @@ xAwaiter::xAwaiter(int err) noexcept
     , coro_id_(-1) {
 }
 
-void xAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
+void xAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
     if (!_co_svs) return;
     _co_svs->register_waiter(wait_id_, h, coro_id_);
 }

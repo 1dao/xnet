@@ -1,4 +1,4 @@
-﻿// xcoroutine.h - Safe coroutine implementation with hardware exception protection
+// xcoroutine.h - Safe coroutine implementation with hardware exception protection
 #ifndef _XCOROUTINE_H
 #define _XCOROUTINE_H
 
@@ -12,7 +12,16 @@
 #include <csignal>
 #include <csetjmp>
 #endif
+
+// Cross-platform coroutine headers
+#if defined(__APPLE__) || (defined(__clang__) && __clang_major__ < 12)
+#include <experimental/coroutine>
+namespace std_coro = std::experimental;
+#else
 #include <coroutine>
+namespace std_coro = std;
+#endif
+
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -49,11 +58,11 @@ int coroutine_self_id();
 
 // Hardware exception protection structure
 struct xCoroutineLJ {
-    #ifdef _WIN32
-        jmp_buf buf;
-    #else
-        sigjmp_buf buf;  // Linux下使用sigjmp_buf
-    #endif
+#ifdef _WIN32
+    jmp_buf buf;
+#else
+    sigjmp_buf buf;  // Linux下使用sigjmp_buf
+#endif
     void* env;
     int sig;
     bool in_protected_call;
@@ -64,7 +73,7 @@ struct xFinAwaiter {
     int coroutine_id;
     xFinAwaiter(int id) : coroutine_id(id) {}
     bool await_ready() noexcept { return false; }
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> h) noexcept;
+    std_coro::coroutine_handle<> await_suspend(std_coro::coroutine_handle<> h) noexcept;
     void await_resume() noexcept {}
 };
 
@@ -79,10 +88,10 @@ struct xCoroTask {
         promise_type() = default;
 
         xCoroTask get_return_object() {
-            return xCoroTask{ std::coroutine_handle<promise_type>::from_promise(*this) };
+            return xCoroTask{ std_coro::coroutine_handle<promise_type>::from_promise(*this) };
         }
 
-        std::suspend_never initial_suspend() { return {}; }
+        std_coro::suspend_never initial_suspend() { return {}; }
 
         xFinAwaiter final_suspend() noexcept {
             return xFinAwaiter(coroutine_id);
@@ -170,10 +179,10 @@ struct xCoroTask {
         }
     };
 
-    std::coroutine_handle<promise_type> handle_;
+    std_coro::coroutine_handle<promise_type> handle_;
 
     xCoroTask() : handle_(nullptr) {}
-    xCoroTask(std::coroutine_handle<promise_type> h) : handle_(h) {}
+    xCoroTask(std_coro::coroutine_handle<promise_type> h) : handle_(h) {}
     xCoroTask(const xCoroTask&) = delete;
     xCoroTask& operator=(const xCoroTask&) = delete;
     xCoroTask(xCoroTask&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
@@ -223,7 +232,7 @@ public:
     explicit xAwaiter(int err) noexcept;
 
     bool await_ready() const noexcept { return error_code_ != 0; }
-    void await_suspend(std::coroutine_handle<> h) noexcept;
+    void await_suspend(std_coro::coroutine_handle<> h) noexcept;
     std::vector<VariantType> await_resume() noexcept;
 
     uint32_t wait_id() const noexcept { return wait_id_; }
