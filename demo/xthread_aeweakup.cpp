@@ -188,7 +188,6 @@ void compute_thread_on_cleanup(xThread* ctx) {
 
 xCoroTask test_coroutine_with_ae(void* arg) {
     xlog_info_tag("[Coroutine]", "Started with ae event loop support");
-
     // Test Redis SET operation
     {
         auto result = co_await xthread_pcall(XTHR_REDIS, redis_set, "user:1001", "John Doe");

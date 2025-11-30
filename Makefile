@@ -1,6 +1,29 @@
 CC = gcc
 CXX = g++
-CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -fcoroutines -D__cpp_coroutines=201902L -I .
+
+# 检测是否安装了clang++
+ifneq ($(shell which clang++ > /dev/null 2>&1; echo $$?),0)
+    # clang++ 不可用，使用默认的g++
+    $(info Using g++ as compiler)
+else
+    # clang++ 可用，设置为默认编译器
+    $(info Using clang++ as compiler)
+    CC = clang
+    CXX = clang++
+endif
+
+# C++编译标志 - 根据编译器类型调整协程标志
+CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -I .
+
+# 根据编译器类型设置协程标志
+ifneq ($(CXX),clang++)
+    # GCC的协程标志
+    CXXFLAGS += -fcoroutines -D__cpp_coroutines=201902L
+else
+    # Clang的协程标志
+    CXXFLAGS += -fcoroutines-ts -D__cpp_coroutines=201902L
+endif
+
 CFLAGS = -Wall -Wextra -I .
 
 # 添加必要的系统头文件路径和定义
@@ -52,11 +75,11 @@ all : $(TARGET_DIR)/svr$(TARGET_EXT) $(TARGET_DIR)/client$(TARGET_EXT)
 # 创建必要的目录
 $(shell mkdir -p $(OBJS_DIR)/demo $(TARGET_DIR))
 
-# 服务器程序（使用 g++ 链接以确保C++运行时正确链接）
+# 服务器程序（使用 CXX 链接以确保C++运行时正确链接）
 $(TARGET_DIR)/svr$(TARGET_EXT) : $(OBJS) $(SVR_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
-# 客户端程序（使用 g++ 链接）
+# 客户端程序（使用 CXX 链接）
 $(TARGET_DIR)/client$(TARGET_EXT) : $(OBJS) $(CLI_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
@@ -104,18 +127,36 @@ tree:
 
 # 调试信息目标
 debug:
+	@echo "Compiler: CC=$(CC), CXX=$(CXX)"
+	@echo "CXXFLAGS: $(CXXFLAGS)"
 	@echo "C_SRCS: $(C_SRCS)"
 	@echo "CPP_SRCS: $(CPP_SRCS)"
 	@echo "C_OBJS: $(C_OBJS)"
 	@echo "CPP_OBJS: $(CPP_OBJS)"
 	@echo "UNAME_S: $(UNAME_S)"
 
+# 强制使用gcc/g++的目标
+use-gcc:
+	$(eval CC = gcc)
+	$(eval CXX = g++)
+	$(eval CXXFLAGS := $(filter-out -fcoroutines-ts,$(CXXFLAGS)))
+	$(eval CXXFLAGS += -fcoroutines -D__cpp_coroutines=201902L)
+	@echo "Forced using gcc/g++"
+
+# 强制使用clang/clang++的目标
+use-clang:
+	$(eval CC = clang)
+	$(eval CXX = clang++)
+	$(eval CXXFLAGS := $(filter-out -fcoroutines,$(CXXFLAGS)))
+	$(eval CXXFLAGS += -fcoroutines-ts -D__cpp_coroutines=201902L)
+	@echo "Forced using clang/clang++"
+
 # 安装依赖（示例，根据实际需要调整）
 install-deps:
 ifeq ($(UNAME_S),Linux)
 	@echo "Installing build dependencies..."
 	# 添加实际的包安装命令，例如：
-	# sudo apt-get install build-essential
+	# sudo apt-get install build-essential clang
 endif
 
-.PHONY: all clean cli svr tree debug install-deps
+.PHONY: all clean cli svr tree debug install-deps use-gcc use-clang

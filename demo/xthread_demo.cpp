@@ -124,23 +124,23 @@ xCoroTask comprehensive_exception_test(void* arg) {
         case 3:  // 浮点异常
             xlog_info("=== Testing floating point exceptions ===");
             {
-                // 启用浮点异常
-                unsigned int old_fp_control = _controlfp(0, 0);
-                _controlfp(0, _EM_INVALID | _EM_ZERODIVIDE | _EM_OVERFLOW);
+                // // 启用浮点异常
+                // unsigned int old_fp_control = _controlfp(0, 0);
+                // _controlfp(0, _EM_INVALID | _EM_ZERODIVIDE | _EM_OVERFLOW);
 
-                volatile double x = 1.0;
-                volatile double y = 0.0;
+                // volatile double x = 1.0;
+                // volatile double y = 0.0;
 
-                // 现在浮点除零应该触发异常
-                if (y == 0.0) {
-                    volatile double z = x / y;  // 这会触发EXCEPTION_FLT_DIVIDE_BY_ZERO
-                    (void)z;
-                }
+                // // 现在浮点除零应该触发异常
+                // if (y == 0.0) {
+                //     volatile double z = x / y;  // 这会触发EXCEPTION_FLT_DIVIDE_BY_ZERO
+                //     (void)z;
+                // }
 
-                // 恢复浮点控制字
-                _controlfp(old_fp_control, _MCW_EM);
+                // // 恢复浮点控制字
+                // _controlfp(old_fp_control, _MCW_EM);
 
-                xlog_info("Floating point operations completed");
+                // xlog_info("Floating point operations completed");
             }
             break;
 
@@ -276,21 +276,21 @@ int main() {
     xthread_init();
 
     // Register main thread
-    xthread_register_main(XTHR_MAIN, "Main");
+    xthread_register_main(XTHR_MAIN, true, "Main");
 
     // Register worker threads
-    xthread_register(XTHR_REDIS, "Redis");
-    xthread_register(XTHR_COMPUTE, "Compute");
+    xthread_register(XTHR_REDIS, true,  "Redis");
+    xthread_register(XTHR_COMPUTE, true, "Compute");
 
     xlog_info("All threads started");
 
     // Start coroutine
-    coroutine_run(test_coroutine, nullptr);
+    // coroutine_run(test_coroutine, nullptr);
 
-    //int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
-    //for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
-    //    coroutine_run(comprehensive_exception_test, &test_cases[i]);
-    //}
+    int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
+    for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
+       coroutine_run(comprehensive_exception_test, &test_cases[i]);
+    }
 
 
     // Main loop - process callbacks

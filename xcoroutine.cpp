@@ -62,7 +62,7 @@ static void print_macos_stack_trace() {
     void* callstack[128];
     int frames = backtrace(callstack, 128);
     char** symbols = backtrace_symbols(callstack, frames);
-    
+
     xlog_err("Call stack (%d frames):", frames);
     for (int i = 0; i < frames && i < 8; ++i) {
         if (symbols) {
@@ -79,7 +79,7 @@ static void print_macos_stack_trace() {
             }
         }
     }
-    
+
     if (symbols) {
         free(symbols);
     }
@@ -801,7 +801,7 @@ std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_hand
         _co_svs->remove_coroutine(coroutine_id);
     }
 #if defined(__APPLE__) || (defined(__clang__) && __clang_major__ < 12)
-    return std_coro::coroutine_handle<>();
+    return std_coro::noop_coroutine();
 #else
     return std_coro::noop_coroutine();
 #endif
