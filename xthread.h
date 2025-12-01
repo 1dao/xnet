@@ -125,7 +125,7 @@ private:
 
 struct xThread {
     int                     id;
-    const char*             name;
+    char*                   name;  // 改为可管理的字符数组指针
     std::atomic<bool>       running;
     xthrQueue              queue;
     void*                   userdata;
@@ -141,6 +141,8 @@ struct xThread {
     void (*on_cleanup)(xThread*);
 
     xThread(bool xwait_ = false);
+    ~xThread();  // 添加析构函数
+    void set_name(const char* name);  // 添加设置名称的方法
 };
 
 // ============================================================================

@@ -1,4 +1,4 @@
-﻿// xthread.cpp - 线程相关
+// xthread.cpp - 线程相关
 
 #include "xthread.h"
 #include "fmacros.h"
@@ -62,6 +62,25 @@ xThread::xThread(bool xwait_)
     handle(0), on_init(nullptr), on_update(nullptr), on_cleanup(nullptr) {
 }
 
+xThread::~xThread() {
+    if (name) {
+        delete[] name;
+        name = nullptr;
+    }
+}
+
+void xThread::set_name(const char* name_) {
+    if (name) {
+        delete[] name;
+        name = nullptr;
+    }
+    if (name_) {
+        size_t len = strlen(name_);
+        name = new char[len + 1];
+        strcpy(name, name_);
+    }
+}
+
 // ============================================================================
 // xthrQueue
 // ============================================================================
@@ -75,6 +94,10 @@ xthrQueue::xthrQueue(bool xwait_) : pending_(0),xwait_(xwait_)  {
 }
 
 xthrQueue::~xthrQueue() {
+    // 清理队列中未处理的任务
+    while (!queue_.empty()) {
+        queue_.pop();  // 依赖xthrTask的析构函数清理资源
+    }
     uninit();
 }
 
@@ -197,12 +220,19 @@ static int process_tasks(xThread* ctx) {
                     result.push_back((int)XNET_UNKNOWN_ERROR);
                 }
 
+                // 确保即使在异常情况下也能正确处理回调
                 if (task.wait_id != 0) {
                     xThread* source_ctx = xthread_get(task.source_thread);
                     if (source_ctx && source_ctx->running) {
-                        auto resume_task = xthrTask::make_resume(task.wait_id, std::move(result));
-                        resume_task.source_thread = ctx->id;
-                        source_ctx->queue.push(std::move(resume_task));
+                        try {
+                            auto resume_task = xthrTask::make_resume(task.wait_id, std::move(result));
+                            resume_task.source_thread = ctx->id;
+                            source_ctx->queue.push(std::move(resume_task));
+                        } catch (const std::exception& e) {
+                            xlog_err("Thread[%d] callback error: %s", ctx->id, e.what());
+                        } catch (...) {
+                            xlog_err("Thread[%d] unknown callback error", ctx->id);
+                        }
                     } else {
                         xlog_err("Source thread %d not found or not running, cannot resume coroutine",
                                     task.source_thread);
@@ -213,8 +243,14 @@ static int process_tasks(xThread* ctx) {
 
             case XTHR_TASK_RESUME: {
                 // 处理协程恢复任务（必须在协程所在的线程执行）
-                if (task.wait_id != 0) {
-                    coroutine_resume(task.wait_id, std::move(task.args));
+                try {
+                    if (task.wait_id != 0) {
+                        coroutine_resume(task.wait_id, std::move(task.args));
+                    }
+                } catch (const std::exception& e) {
+                    xlog_err("Thread[%d] coroutine resume error: %s", ctx->id, e.what());
+                } catch (...) {
+                    xlog_err("Thread[%d] unknown coroutine resume error", ctx->id);
                 }
                 break;
             }
@@ -299,7 +335,25 @@ void xthread_uninit() {
     }
 
 #ifdef _WIN32
-    if (_tls != TLS_OUT_OF_INDEXES) { TlsFree(_tls); _tls = TLS_OUT_OF_INDEXES; }
+    if (_tls != TLS_OUT_OF_INDEXES) {
+        // 清理所有线程的TLS数据
+        for (int i = 0; i < XTHR_MAX; i++) {
+            if (_threads[i]) {
+                TlsSetValue(_tls, nullptr);
+            }
+        }
+        TlsFree(_tls);
+        _tls = TLS_OUT_OF_INDEXES;
+    }
+#else
+    // Linux平台清理TLS数据
+    for (int i = 0; i < XTHR_MAX; i++) {
+        if (_threads[i]) {
+            pthread_setspecific(_tls, nullptr);
+        }
+    }
+    // 注意：pthread_key_delete不会自动调用析构函数
+    pthread_key_delete(_tls);
 #endif
 
     xnet_mutex_uninit(&_lock);
@@ -317,7 +371,7 @@ bool xthread_register(int id, bool xwait_, const char* name,
 
     xThread* ctx = new xThread(xwait_);
     ctx->id = id;
-    ctx->name = name;
+    ctx->set_name(name);
     ctx->on_init = on_init;
     ctx->on_update = on_update;
     ctx->on_cleanup = on_cleanup;
@@ -361,7 +415,7 @@ bool xthread_register_main(int id, bool xwait_, const char* name) {
 
     xThread* ctx = new xThread(xwait_);
     ctx->id = id;
-    ctx->name = name;
+    ctx->set_name(name);
     ctx->running = true;
     ctx->handle = 0;
 
@@ -414,20 +468,21 @@ xThread* xthread_current() { return xthread_get(tls_get()); }
 int xthread_set_notify(void* fd) {
     xThread* ctx = xthread_current();
     if (!ctx) return -1;
-    int fd_int = -1;
-    if (fd != nullptr) {
-        fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
-    }
-    if (fd_int > 0) {
-        assert(ctx->queue.get_xwait());
-    }
-    #ifdef _WIN32
-        ctx->queue.set_iocp(fd_int);
-    #else
-        ctx->queue.set_notify_fd(fd_int);
-    #endif
 
-    xlog_warn("xthread_set_notify:%s, %d", ctx->name?ctx->name:"", (fd_int));
+#ifdef _WIN32
+    if ((int)(fd) > 0)
+        assert(ctx->queue.get_xwait());
+    ctx->queue.set_iocp(reinterpret_cast<HANDLE>(fd));
+    xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", fd);
+#else
+    int fd_int = -1;
+    if (fd != nullptr)
+        fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
+    if (fd_int > 0)
+        assert(ctx->queue.get_xwait());
+    ctx->queue.set_notify_fd(fd_int);
+    xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", (fd_int));
+#endif
     return 0;
 }
 

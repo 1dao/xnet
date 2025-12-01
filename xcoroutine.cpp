@@ -767,6 +767,19 @@ xAwaiter::xAwaiter(int err) noexcept
     , coro_id_(-1) {
 }
 
+xAwaiter::~xAwaiter() noexcept {
+    // 如果有未完成的等待，确保清理资源
+    if (_co_svs && wait_id_ != 0 && error_code_ == 0) {
+        // 移除等待项以避免资源泄漏
+        try {
+            XMutexGuard lock(&_co_svs->wait_mutex);
+            _co_svs->wait_map_.erase(wait_id_);
+        } catch (...) {
+            // 忽略清理过程中的异常
+        }
+    }
+}
+
 void xAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
     if (!_co_svs) return;
     _co_svs->register_waiter(wait_id_, h, coro_id_);

@@ -221,6 +221,7 @@ class xAwaiter {
 public:
     xAwaiter() noexcept;
     explicit xAwaiter(int err) noexcept;
+    ~xAwaiter() noexcept;  // 添加析构函数确保资源清理
 
     bool await_ready() const noexcept { return error_code_ != 0; }
     void await_suspend(std::coroutine_handle<> h) noexcept;
