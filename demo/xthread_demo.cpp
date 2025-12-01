@@ -1,4 +1,4 @@
-﻿// xthread_demo.cpp - thread pool usage demo
+// xthread_demo.cpp - thread pool usage demo
 
 #include "../xthread.h"
 #include "../xlog.h"
@@ -156,21 +156,21 @@ xCoroTask comprehensive_exception_test(void* arg) {
             break;
 
         case 5:  // 栈溢出（相对安全的测试）--协程不能使用alloca
-            // xlog_info("=== Testing stack overflow ===");
-            // {
-            //     // 使用足够大的栈分配来触发栈溢出
-            //     // Windows默认栈大小通常是1MB，我们分配更多来确保溢出
-            //     const size_t stack_size = 2 * 1024 * 1024;  // 2MB
-            //     char* huge_buffer = (char*)alloca(stack_size);
+             //xlog_info("=== Testing stack overflow ===");
+             //{
+             //    // 使用足够大的栈分配来触发栈溢出
+             //    // Windows默认栈大小通常是1MB，我们分配更多来确保溢出
+             //    const size_t stack_size = 2 * 1024 * 1024;  // 2MB
+             //    char* huge_buffer = (char*)alloca(stack_size);
 
-            //     if (huge_buffer) {
-            //         memset(huge_buffer, 0, stack_size);
-            //         xlog_info("Stack allocation completed, buffer size: %zu", stack_size);
-            //     } else {
-            //         xlog_info("Stack allocation failed (this is expected for stack overflow)");
-            //     }
-            // }
-            // break;
+             //    if (huge_buffer) {
+             //        memset(huge_buffer, 0, stack_size);
+             //        xlog_info("Stack allocation completed, buffer size: %zu", stack_size);
+             //    } else {
+             //        xlog_info("Stack allocation failed (this is expected for stack overflow)");
+             //    }
+             //}
+             //break;
             xlog_info("=== Testing stack overflow ===");
             {
                 // 直接尝试分配远超栈大小的数组
@@ -275,22 +275,22 @@ int main() {
     coroutine_init();
     xthread_init();
 
-    // Register main thread
-    xthread_register_main(XTHR_MAIN, "Main");
+    //// Register main thread
+    //xthread_register_main(XTHR_MAIN, true, "Main");
 
-    // Register worker threads
-    xthread_register(XTHR_REDIS, "Redis");
-    xthread_register(XTHR_COMPUTE, "Compute");
+    //// Register worker threads
+    //xthread_register(XTHR_REDIS, true, "Redis");
+    //xthread_register(XTHR_COMPUTE, true, "Compute");
 
     xlog_info("All threads started");
 
     // Start coroutine
-    coroutine_run(test_coroutine, nullptr);
+    // coroutine_run(test_coroutine, nullptr);
 
-    //int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
-    //for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
-    //    coroutine_run(comprehensive_exception_test, &test_cases[i]);
-    //}
+    int test_cases[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 各种异常类型
+    for (int i = 0; i < sizeof(test_cases) / sizeof(test_cases[0]); i++) {
+        coroutine_run(comprehensive_exception_test, &test_cases[i]);
+    }
 
 
     // Main loop - process callbacks

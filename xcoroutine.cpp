@@ -1,4 +1,10 @@
-// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
+﻿// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
+//
+// macOS Exception Handling Notes:
+// 1. Uses sigsetjmp/siglongjmp for signal-based exception handling
+// 2. Implements special stack tracing functions for better macOS compatibility
+// 3. Adds additional diagnostic information for macOS-specific exceptions
+// 4. Handles signal differences between macOS and Linux platforms
 
 #include "xcoroutine.h"
 #include <coroutine>
@@ -29,6 +35,13 @@ static thread_local xCoroutineLJ* g_current_lj = nullptr;
 #include <link.h>  // 用于获取模块信息
 #include <execinfo.h>
 
+// macOS 特殊处理
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <mach-o/nlist.h>
+#include <libproc.h>
+#endif
+
 // 辅助函数：获取模块基地址
 static uintptr_t get_module_base_address() {
     Dl_info info;
@@ -50,6 +63,70 @@ static void print_address_info(uintptr_t addr, const char* prefix) {
     }
 }
 
+// macOS 特殊的地址信息打印函数
+#ifdef __APPLE__
+static void print_macos_address_info(uintptr_t addr, const char* prefix) {
+    Dl_info info;
+    if (dladdr((void*)addr, &info)) {
+        uintptr_t offset = addr - (uintptr_t)info.dli_fbase;
+        xlog_err("%s: 0x%lx (module: %s, offset: 0x%lx)",
+                prefix, addr, info.dli_fname ? info.dli_fname : "unknown", offset);
+
+        // 额外的 macOS 信息
+        if (info.dli_sname) {
+            xlog_err("  Symbol: %s", info.dli_sname);
+        }
+    } else {
+        xlog_err("%s: 0x%lx (unknown module)", prefix, addr);
+    }
+}
+
+// macOS 特殊的堆栈跟踪函数
+static void print_macos_stack_trace() {
+    void* callstack[128];
+    int frames = backtrace(callstack, 128);
+
+    xlog_err("macOS Call stack (%d frames):", frames);
+
+    char** symbols = backtrace_symbols(callstack, frames);
+    if (symbols) {
+        for (int i = 0; i < frames && i < 8; ++i) {
+            // 尝试解析符号
+            Dl_info dl_info;
+            if (dladdr(callstack[i], &dl_info)) {
+                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
+                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
+                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
+
+                xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
+
+                // 额外的符号信息
+                if (dl_info.dli_sname) {
+                    xlog_err("    Symbol: %s", dl_info.dli_sname);
+                }
+            } else {
+                xlog_err("  #%d: %s", i, symbols[i]);
+            }
+        }
+        free(symbols);
+    } else {
+        // 如果无法获取符号，使用基本的地址信息
+        for (int i = 0; i < frames && i < 8; ++i) {
+            Dl_info dl_info;
+            if (dladdr(callstack[i], &dl_info)) {
+                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
+                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
+                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
+
+                xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
+            } else {
+                xlog_err("  #%d: 0x%p", i, callstack[i]);
+            }
+        }
+    }
+}
+#endif
+
 static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
     if (g_current_lj && g_current_lj->in_protected_call) {
         g_current_lj->sig = sig;
@@ -63,7 +140,11 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
                 sig == SIGBUS ? "SIGBUS" : "Unknown");
 
         // 打印异常地址信息
+        #ifdef __APPLE__
+        print_macos_address_info((uintptr_t)info->si_addr, "Fault address");
+        #else
         print_address_info((uintptr_t)info->si_addr, "Fault address");
+        #endif
 
         // 如果是SIGSEGV，提供更多信息
         if (sig == SIGSEGV && info->si_code > 0) {
@@ -77,6 +158,24 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
         void* callstack[128];
         int frames = backtrace(callstack, 128);
 
+        #ifdef __APPLE__
+        // 使用 macOS 特殊的堆栈跟踪函数
+        print_macos_stack_trace();
+
+        // macOS 特殊处理：额外打印一些诊断信息
+        xlog_err("macOS specific diagnostics:");
+        xlog_err("  Signal code: %d", info->si_code);
+        xlog_err("  Process ID: %d", getpid());
+
+        // macOS 上的额外调试信息
+        xlog_err("  Fault address: %p", info->si_addr);
+        if (sig == SIGSEGV) {
+            xlog_err("  Memory access type: %s",
+                     info->si_code == SEGV_MAPERR ? "not mapped" :
+                     info->si_code == SEGV_ACCERR ? "permission denied" : "unknown");
+        }
+        #else
+        // Linux 上的标准堆栈跟踪
         xlog_err("Call stack (%d frames):", frames);
         for (int i = 0; i < frames && i < 8; ++i) {  // 限制为8帧
             Dl_info dl_info;
@@ -90,6 +189,8 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
                 xlog_err("  #%d: 0x%p", i, callstack[i]);
             }
         }
+        #endif
+
         xlog_err("=== END EXCEPTION REPORT ===");
 
         siglongjmp(g_current_lj->buf, 1);
@@ -115,7 +216,11 @@ static void install_signal_handlers() {
     sigaction(SIGTRAP, &sa, nullptr);  // 断点/跟踪陷阱
     sigaction(SIGABRT, &sa, nullptr);  // 中止信号
 
+    #ifdef __APPLE__
+    xlog_info("macOS signal handlers installed");
+    #else
     xlog_info("Linux signal handlers installed");
+    #endif
 }
 #else
 #include <windows.h>
@@ -395,7 +500,7 @@ if (!handle_ || handle_.done()) return false;
 #ifdef _WIN32
    if (setjmp(lj->buf) == 0) {
 #else
-   if (sigsetjmp(lj->buf, 1) == 0) {  // Linux下使用sigsetjmp，第二个参数1表示保存信号掩码
+   if (sigsetjmp(lj->buf, 1) == 0) {  // Linux/macOS下使用sigsetjmp，第二个参数1表示保存信号掩码
 #endif
        // 正常执行路径
        try {
@@ -419,6 +524,12 @@ if (!handle_ || handle_.done()) return false;
        // 硬件异常路径
        xlog_err("*** HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ***",
                 handle_.promise().coroutine_id, lj->sig);
+
+       // macOS 特殊处理：额外的日志信息
+       #ifdef __APPLE__
+       xlog_err("macOS: Hardware exception caught in coroutine %d", handle_.promise().coroutine_id);
+       #endif
+
        handle_.promise().hardware_signal = lj->sig;
        success = false;
    }
@@ -561,7 +672,11 @@ public:
                 xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
                 simple_windows_stack_trace();  // 打印简单堆栈跟踪
             #else
+                #ifdef __APPLE__
+                xlog_err("macOS signal: %d", creation_lj.sig);
+                #else
                 xlog_err("Linux signal: %d", creation_lj.sig);
+                #endif
             #endif
 
             xlog_err("=== END CREATION EXCEPTION REPORT ===");
@@ -658,7 +773,7 @@ private:
 #ifdef _WIN32
         if (setjmp(temp_lj.buf) == 0) {
 #else
-        if (sigsetjmp(temp_lj.buf, 1) == 0) {  // Linux下使用sigsetjmp
+        if (sigsetjmp(temp_lj.buf, 1) == 0) {  // Linux/macOS下使用sigsetjmp
 #endif
             try {
                 handle.resume();
@@ -673,7 +788,7 @@ private:
             xlog_err("*** HW EXCEPTION in coroutine %d during %s: signal %d ***",
                     coro_id, context, temp_lj.sig);
 
-               // 记录Linux特定的信号信息
+               // 记录Unix/Linux/macOS特定的信号信息
    #ifndef _WIN32
                switch (temp_lj.sig) {
                    case SIGSEGV:
@@ -692,6 +807,12 @@ private:
                        xlog_err("Signal %d in coroutine %d", temp_lj.sig, coro_id);
                        break;
                }
+
+               // macOS 特殊处理：额外日志信息
+               #ifdef __APPLE__
+               xlog_err("macOS: Hardware exception %d caught in coroutine %d during %s",
+                        temp_lj.sig, coro_id, context);
+               #endif
    #endif
            }
 

@@ -26,7 +26,7 @@
 #define CHANNEL_BUFF_MAX (2*1024*1024)
 
 typedef struct {
-#ifdef   AE_USING_IOCP
+#ifdef   HAVE_IOCP
     OVERLAPPED rop;
     int rmask;
     OVERLAPPED wop;
@@ -37,7 +37,7 @@ typedef struct {
     xchannel_proc*  fclose;          // 协议处理器
     void*           userdata;
 
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     SOCKET new_fd;         // 用于accept操作
     WSABUF wsrbuf;         // 用于WSARecv
     WSABUF wswbuf;         // 用于WSASend
@@ -94,7 +94,7 @@ static channel_context_t* create_context(xSocket fd, xchannel_proc* fpack, xchan
         return NULL;
     }
 
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     xChannel* s = ctx->channel;
     memset(&ctx->rop, 0, sizeof(OVERLAPPED));
     memset(&ctx->wop, 0, sizeof(OVERLAPPED));
@@ -117,7 +117,7 @@ static void free_channel_context(channel_context_t* ctx) {
         ctx->channel = NULL;
     }
 
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     if (ctx->new_fd != INVALID_SOCKET) {
         //closesocket(ctx->new_fd);
         ctx->new_fd = INVALID_SOCKET;
@@ -162,7 +162,7 @@ static int on_data(channel_context_t* ctx) {
     return AE_OK;
 }
 
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
 static LPFN_ACCEPTEX lpAcceptEx = NULL;
 inline static int initializeAcceptEx(SOCKET listenSocket) {
     if (lpAcceptEx != NULL) return 0;
@@ -253,7 +253,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
 
     xChannel* s = ctx->channel;
     xSocket fd = s->fd;
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     int available = s->rlen - (s->rpos - s->rbuf);
     if (available < 0) {
         xchannel_close(s);
@@ -280,7 +280,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
         xchannel_close(s);
         return AE_ERR;
     }
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     aePostIocpRead(fd, &ctx->rop);
 #endif
     return AE_OK;
@@ -297,7 +297,7 @@ int aeProcWrite(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, in
         s->wpos = s->wbuf;
         return AE_OK;
     }
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     trans = anetWrite(fd, s->wbuf, slen);
     if (trans <= 0) {
         if (trans == 0) {
@@ -349,7 +349,7 @@ int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, i
     channel_context_t* cur = (channel_context_t*)client_data;
     if (!cur) return AE_ERR;
 	fd = cur->channel->fd;
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     if (cur->new_fd != INVALID_SOCKET) {
         SOCKET new_fd = cur->new_fd;
         anetNonBlock(NULL, new_fd);     // 设置非阻塞
@@ -454,7 +454,7 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
     }
     listen_ctx->channel->ev = fe;
 
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     aePostIocpAccept(fd, &listen_ctx->rop);
 #endif
     return AE_OK;
@@ -505,14 +505,14 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
     client_ctx->channel->ev = client_fe;
     aeDeleteFileEvent(el, fd, client_fe, AE_WRITABLE);  // register & not start
 
-#ifdef AE_USING_IOCP
+#ifdef HAVE_IOCP
     aePostIocpRead(fd, &client_ctx->rop);
 #endif
     return client_ctx->channel;
 }
 
 static inline int xchannel_post(xChannel* s, int len) {
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     int slen = s->wpos - s->wbuf;
     int trans = anetWrite(s->fd, s->wbuf, slen);
     if (trans <= 0) {

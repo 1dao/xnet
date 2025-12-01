@@ -1,4 +1,10 @@
 ﻿// xcoroutine.h - Safe coroutine implementation with hardware exception protection
+//
+// macOS Exception Handling Notes:
+// 1. Uses sigsetjmp/siglongjmp for signal-based exception handling
+// 2. Handles platform-specific signal codes and exception messages
+// 3. Provides enhanced diagnostic information for macOS-specific exceptions
+//
 #ifndef _XCOROUTINE_H
 #define _XCOROUTINE_H
 
@@ -165,7 +171,12 @@ struct xCoroTask {
             case EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
             case EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
 #endif
-            default:      return "Unknown hardware exception";
+            default:
+                #ifdef __APPLE__
+                return "Unknown hardware exception (macOS)";
+                #else
+                return "Unknown hardware exception";
+                #endif
             }
         }
     };

@@ -112,7 +112,7 @@ typedef struct aeEventLoop {
     aeBeforeSleepProc *beforesleep;
 
     // 信号fd相关字段
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     xSocket signal_fd[2];           // 信号fd对 [0]:读端, [1]:写端
 #endif
     int fdWaitSlot;                // 是否ae创建的信号fd

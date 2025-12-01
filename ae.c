@@ -1,4 +1,4 @@
-﻿/* A simple event-driven programming library. Originally I wrote this code
+/* A simple event-driven programming library. Originally I wrote this code
  * for the Jim's event-loop (Jim is a Tcl interpreter) but later translated
  * it in form of a library for easy reuse.
  *
@@ -57,7 +57,7 @@
 	    #include "ae_kqueue.c"
 	#else
 	    #ifdef _WIN32
-            #ifdef AE_USING_IOCP
+            #ifdef HAVE_IOCP
                 #include "ae_iocp.c"
             #else
                 #include "ae_ws2.c"
@@ -75,7 +75,7 @@ static _declspec(thread) aeEventLoop* _net_ae = NULL;
 static __thread aeEventLoop* _net_ae = NULL;
 #endif
 
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
 static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
     char buf[64];
     // 读取信号数据，避免fd一直处于可读状态
@@ -167,7 +167,7 @@ aeEventLoop* aeGetCurEventLoop(void) {
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     if (!eventLoop) return;
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     if (eventLoop->signal_fd[0] >= 0) {
         close(eventLoop->signal_fd[0]);
         close(eventLoop->signal_fd[1]);
@@ -219,7 +219,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     eventLoop->efhead = fe->slot;
     if(ev)
         *ev = fe;
-    
+
     if (aeApiAddEvent(eventLoop, fd, mask, fe) == -1){
         return AE_ERR;
     }
@@ -227,7 +227,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
-    fe->clientData = clientData?clientData:fd;
+    fe->clientData = clientData?clientData:(void*)fd;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
@@ -547,7 +547,7 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeCreateSignalFile(aeEventLoop* eventLoop) {
     eventLoop->fdWaitSlot = eventLoop->efhead;
 
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     if (eventLoop->signal_fd[0] != 0) return;
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, eventLoop->signal_fd) == 0) {
         // 设置非阻塞
@@ -566,7 +566,7 @@ void aeDeleteSignalFile(aeEventLoop* eventLoop) {
     if (slot == -1) return;
     eventLoop->fdWaitSlot = -1;
 
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     aeDeleteFileEvent(eventLoop, eventLoop->signal_fd[1], &eventLoop->events[slot], AE_READABLE);
 #else
     aeApiDelEvent(eventLoop, -1, 0);
@@ -574,7 +574,7 @@ void aeDeleteSignalFile(aeEventLoop* eventLoop) {
 }
 
 void aeGetSignalFile(aeEventLoop *eventLoop, xSocket* fdSignal){
-#ifndef AE_USING_IOCP
+#ifndef HAVE_IOCP
     *fdSignal = eventLoop->signal_fd[0];
 #else
     *fdSignal = aeGetStateFD(eventLoop);

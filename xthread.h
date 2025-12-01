@@ -1,4 +1,4 @@
-﻿// xthread.h - 线程池与跨线程RPC
+// xthread.h - 线程池与跨线程RPC
 // 支持预定义线程ID，协程内同步调用，复用xcoroutine框架
 
 #ifndef _XTHREAD_H
@@ -127,7 +127,7 @@ struct xThread {
     int                     id;
     char*                   name;  // 改为可管理的字符数组指针
     std::atomic<bool>       running;
-    xthrQueue              queue;
+    xthrQueue               queue;
     void*                   userdata;
 
 #ifdef _WIN32

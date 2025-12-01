@@ -1,4 +1,4 @@
-﻿#ifndef _REDIS_FMACRO_H
+#ifndef _REDIS_FMACRO_H
 #define _REDIS_FMACRO_H
 
 #ifdef _WIN32
@@ -79,19 +79,16 @@
     #endif
 #endif
 
-#ifdef __linux__
-#define HAVE_EPOLL 1
-#endif
-
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)
 #ifdef _WIN32
-    #define AE_USING_IOCP
-#endif
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#define HAVE_KQUEUE 1
+    #define HAVE_IOCP 1
+#elif __linux__
+    #define HAVE_EPOLL 1
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    #define HAVE_KQUEUE 1
 #else
-#error "fdafafdsfadsfda"
+    #error "Unsupported platform"
 #endif
 
 #endif

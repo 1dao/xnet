@@ -15,6 +15,7 @@
 #include <poll.h>
 #include <errno.h>
 #endif
+#include "zmalloc.h"
 
 // ============================================================================
 // 全局状态
@@ -64,19 +65,19 @@ xThread::xThread(bool xwait_)
 
 xThread::~xThread() {
     if (name) {
-        delete[] name;
+        zfree(name);
         name = nullptr;
     }
 }
 
 void xThread::set_name(const char* name_) {
     if (name) {
-        delete[] name;
+        zfree(name);
         name = nullptr;
     }
     if (name_) {
         size_t len = strlen(name_);
-        name = new char[len + 1];
+        name = (char*)zmalloc(len + 1);
         strcpy(name, name_);
     }
 }
