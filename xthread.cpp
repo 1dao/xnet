@@ -414,20 +414,22 @@ xThread* xthread_current() { return xthread_get(tls_get()); }
 int xthread_set_notify(void* fd) {
     xThread* ctx = xthread_current();
     if (!ctx) return -1;
-    int fd_int = -1;
-    if (fd != nullptr) {
-        fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
-    }
-    if (fd_int > 0) {
-        assert(ctx->queue.get_xwait());
-    }
+    
     #ifdef _WIN32
-        ctx->queue.set_iocp(fd_int);
+        ctx->queue.set_iocp((HANDLE)fd);
+        xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", ((int)fd));
     #else
+        int fd_int = -1;
+        if (fd != nullptr) {
+            fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
+        }
+        if (fd_int > 0) {
+            assert(ctx->queue.get_xwait());
+        }
         ctx->queue.set_notify_fd(fd_int);
+        xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", (fd_int));
     #endif
 
-    xlog_warn("xthread_set_notify:%s, %d", ctx->name?ctx->name:"", (fd_int));
     return 0;
 }
 

@@ -1,4 +1,4 @@
-// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
+﻿// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
 
 #include "xcoroutine.h"
 #include <unordered_map>

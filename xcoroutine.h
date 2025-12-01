@@ -1,4 +1,4 @@
-// xcoroutine.h - Safe coroutine implementation with hardware exception protection
+﻿// xcoroutine.h - Safe coroutine implementation with hardware exception protection
 #ifndef _XCOROUTINE_H
 #define _XCOROUTINE_H
 
