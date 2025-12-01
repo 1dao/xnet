@@ -80,8 +80,10 @@ static void print_macos_stack_trace() {
         }
     }
 
+    // 确保释放内存
     if (symbols) {
         free(symbols);
+        symbols = nullptr;  // 防止悬空指针
     }
 }
 #endif
@@ -143,6 +145,27 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
     } else {
         // 非保护调用中的信号处理
         xlog_err("Signal %d in non-protected context, terminating", sig);
+        // 打印堆栈跟踪以便调试
+#ifdef __APPLE__
+        print_macos_stack_trace();
+#else
+        void* callstack[128];
+        int frames = backtrace(callstack, 128);
+        char** symbols = backtrace_symbols(callstack, frames);
+
+        xlog_err("Call stack (%d frames):", frames);
+        for (int i = 0; i < frames && i < 8; ++i) {
+            if (symbols) {
+                xlog_err("  #%d: %s", i, symbols[i]);
+            } else {
+                xlog_err("  #%d: 0x%p", i, callstack[i]);
+            }
+        }
+
+        if (symbols) {
+            free(symbols);
+        }
+#endif
         signal(sig, SIG_DFL);
         raise(sig);
     }
@@ -465,8 +488,32 @@ if (!handle_ || handle_.done()) return false;
        }
    } else {
        // 硬件异常路径
-       xlog_err("*** HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ***",
+       xlog_err("=== HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ===",
                 handle_.promise().coroutine_id, lj->sig);
+
+       // 打印详细堆栈信息
+#ifdef __APPLE__
+       print_macos_stack_trace();
+#else
+       void* callstack[128];
+       int frames = backtrace(callstack, 128);
+       char** symbols = backtrace_symbols(callstack, frames);
+
+       xlog_err("Call stack (%d frames):", frames);
+       for (int i = 0; i < frames && i < 8; ++i) {
+           if (symbols) {
+               xlog_err("  #%d: %s", i, symbols[i]);
+           } else {
+               xlog_err("  #%d: 0x%p", i, callstack[i]);
+           }
+       }
+
+       if (symbols) {
+           free(symbols);
+       }
+#endif
+
+       xlog_err("=== END HARDWARE EXCEPTION REPORT ===");
        handle_.promise().hardware_signal = lj->sig;
        success = false;
    }
@@ -505,6 +552,7 @@ public:
         xnet_mutex_init(&wait_mutex);
 
         // Install hardware exception handlers
+        install_signal_handlers();
     }
 
     ~xCoroService() {
@@ -609,7 +657,28 @@ public:
                 xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
                 simple_windows_stack_trace();  // 打印简单堆栈跟踪
             #else
-                xlog_err("Linux signal: %d", creation_lj.sig);
+                xlog_err("Unix signal: %d", creation_lj.sig);
+                // 打印堆栈跟踪
+#ifdef __APPLE__
+                print_macos_stack_trace();
+#else
+                void* callstack[128];
+                int frames = backtrace(callstack, 128);
+                char** symbols = backtrace_symbols(callstack, frames);
+
+                xlog_err("Call stack (%d frames):", frames);
+                for (int i = 0; i < frames && i < 8; ++i) {
+                    if (symbols) {
+                        xlog_err("  #%d: %s", i, symbols[i]);
+                    } else {
+                        xlog_err("  #%d: 0x%p", i, callstack[i]);
+                    }
+                }
+
+                if (symbols) {
+                    free(symbols);
+                }
+#endif
             #endif
 
             xlog_err("=== END CREATION EXCEPTION REPORT ===");
@@ -862,7 +931,6 @@ bool coroutine_init() {
     if (_co_svs) return true;
     try {
         _co_svs = new xCoroService();
-        install_signal_handlers();
         xlog_info("Coroutine system initialized with hardware exception protection");
         return true;
     } catch (...) {

@@ -44,6 +44,16 @@ else
     LDFLAGS += -lpthread
     # 添加必要的系统库
     LDFLAGS += -lm
+    # 检测系统类型并添加相应库
+    UNAME_S := $(shell uname -s)
+    ifeq ($(UNAME_S),Darwin)
+        # macOS平台需要链接execinfo库来支持backtrace功能
+        LDFLAGS += -lexecinfo
+    endif
+    ifeq ($(UNAME_S),Linux)
+        # Linux平台可能需要额外的库
+        LDFLAGS += -ldl
+    endif
     TARGET_EXT =
 endif
 
@@ -56,12 +66,14 @@ C_SRCS = ae.c anet.c zmalloc.c xlog.c
 CPP_SRCS = xchannel.cpp xcoroutine.cpp xrpc.cpp xthread.cpp xchannel_pdu.cpp xhandle.cpp
 SVR_SRCS = demo/xthread_aeweakup.cpp
 CLI_SRCS = demo/xrpc_client.cpp
+TEST_SRCS = demo/test_macos_exception.cpp
 
 # 目标文件（在构建目录中）
 C_OBJS = $(addprefix $(OBJS_DIR)/, $(C_SRCS:.c=.o))
 CPP_OBJS = $(addprefix $(OBJS_DIR)/, $(CPP_SRCS:.cpp=.o))
 SVR_OBJS = $(addprefix $(OBJS_DIR)/, $(SVR_SRCS:.cpp=.o))
 CLI_OBJS = $(addprefix $(OBJS_DIR)/, $(CLI_SRCS:.cpp=.o))
+TEST_OBJS = $(addprefix $(OBJS_DIR)/, $(TEST_SRCS:.cpp=.o))
 
 # 合并所有对象文件
 OBJS = $(C_OBJS) $(CPP_OBJS)
@@ -70,7 +82,7 @@ OBJS = $(C_OBJS) $(CPP_OBJS)
 TARGET_DIR = bin
 
 # 默认目标
-all : $(TARGET_DIR)/svr$(TARGET_EXT) $(TARGET_DIR)/client$(TARGET_EXT)
+all : $(TARGET_DIR)/svr$(TARGET_EXT) $(TARGET_DIR)/client$(TARGET_EXT) $(TARGET_DIR)/test_exception$(TARGET_EXT)
 
 # 创建必要的目录
 $(shell mkdir -p $(OBJS_DIR)/demo $(TARGET_DIR))
@@ -81,6 +93,10 @@ $(TARGET_DIR)/svr$(TARGET_EXT) : $(OBJS) $(SVR_OBJS)
 
 # 客户端程序（使用 CXX 链接）
 $(TARGET_DIR)/client$(TARGET_EXT) : $(OBJS) $(CLI_OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+# 测试程序（使用 CXX 链接）
+$(TARGET_DIR)/test_exception$(TARGET_EXT) : $(OBJS) $(TEST_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 # C 文件编译规则
