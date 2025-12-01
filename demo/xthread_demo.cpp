@@ -276,11 +276,11 @@ int main() {
     xthread_init();
 
     // Register main thread
-    xthread_register_main(XTHR_MAIN, true, "Main");
+    //xthread_register_main(XTHR_MAIN, true, "Main");
 
     // Register worker threads
-    xthread_register(XTHR_REDIS, true,  "Redis");
-    xthread_register(XTHR_COMPUTE, true, "Compute");
+    //xthread_register(XTHR_REDIS, true,  "Redis");
+    //xthread_register(XTHR_COMPUTE, true, "Compute");
 
     xlog_info("All threads started");
 
@@ -295,7 +295,7 @@ int main() {
 
     // Main loop - process callbacks
     while(true) {
-        xthread_update();  // Process RPC results from worker threads
+        //xthread_update();  // Process RPC results from worker threads
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 

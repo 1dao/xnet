@@ -48,7 +48,7 @@ else
     UNAME_S := $(shell uname -s)
     ifeq ($(UNAME_S),Darwin)
         # macOS平台需要链接execinfo库来支持backtrace功能
-        LDFLAGS += -lexecinfo
+        # LDFLAGS += -lexecinfo
     endif
     ifeq ($(UNAME_S),Linux)
         # Linux平台可能需要额外的库
@@ -64,7 +64,7 @@ OBJS_DIR = $(BUILD_DIR)/objs
 # 源文件 - 将C和C++文件分开
 C_SRCS = ae.c anet.c zmalloc.c xlog.c
 CPP_SRCS = xchannel.cpp xcoroutine.cpp xrpc.cpp xthread.cpp xchannel_pdu.cpp xhandle.cpp
-SVR_SRCS = demo/xthread_aeweakup.cpp
+SVR_SRCS = demo/xthread_demo.cpp
 CLI_SRCS = demo/xrpc_client.cpp
 TEST_SRCS = demo/test_macos_exception.cpp
 
