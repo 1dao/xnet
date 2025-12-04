@@ -228,12 +228,12 @@ struct xCoroTask {
 // Awaiter：协程挂起/恢复的桥接
 class xAwaiter {
 public:
-    xAwaiter() noexcept;
-    explicit xAwaiter(int err) noexcept;
+    xAwaiter();
+    explicit xAwaiter(int err);
 
     bool await_ready() const noexcept { return error_code_ != 0; }
-    void await_suspend(std_coro::coroutine_handle<> h) noexcept;
-    std::vector<VariantType> await_resume() noexcept;
+    void await_suspend(std_coro::coroutine_handle<> h);
+    std::vector<VariantType> await_resume();
 
     uint32_t wait_id() const noexcept { return wait_id_; }
     int error_code() const noexcept { return error_code_; }

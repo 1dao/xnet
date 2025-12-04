@@ -50,8 +50,9 @@ static void print_address_info(uintptr_t addr, const char* prefix) {
     if (dladdr((void*)addr, &info)) {
         uintptr_t offset = addr - (uintptr_t)info.dli_fbase;
         xlog_err("%s: 0x%lx (module: %s, offset: 0x%lx)",
-                prefix, addr, info.dli_fname ? info.dli_fname : "unknown", offset);
-    } else {
+            prefix, addr, info.dli_fname ? info.dli_fname : "unknown", offset);
+    }
+    else {
         xlog_err("%s: 0x%lx (unknown module)", prefix, addr);
     }
 }
@@ -67,23 +68,23 @@ static void print_macos_stack_trace() {
     for (int i = 0; i < frames && i < 8; ++i) {
         if (symbols) {
             xlog_err("  #%d: %s", i, symbols[i]);
-        } else {
+        }
+        else {
             Dl_info dl_info;
             if (dladdr(callstack[i], &dl_info)) {
                 uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
                 const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
                 const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
                 xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
-            } else {
+            }
+            else {
                 xlog_err("  #%d: 0x%p", i, callstack[i]);
             }
         }
     }
 
-    // 确保释放内存
     if (symbols) {
         free(symbols);
-        symbols = nullptr;  // 防止悬空指针
     }
 }
 #endif
@@ -95,10 +96,10 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
         // 记录详细的信号和地址信息
         xlog_err("=== HARDWARE EXCEPTION DETECTED ===");
         xlog_err("Signal: %d (%s)", sig,
-                sig == SIGSEGV ? "SIGSEGV" :
-                sig == SIGFPE ? "SIGFPE" :
-                sig == SIGILL ? "SIGILL" :
-                sig == SIGBUS ? "SIGBUS" : "Unknown");
+            sig == SIGSEGV ? "SIGSEGV" :
+            sig == SIGFPE ? "SIGFPE" :
+            sig == SIGILL ? "SIGILL" :
+            sig == SIGBUS ? "SIGBUS" : "Unknown");
 
         // 打印异常地址信息
         if (info && info->si_addr) {
@@ -134,7 +135,8 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
                 const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
 
                 xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
-            } else {
+            }
+            else {
                 xlog_err("  #%d: 0x%p", i, callstack[i]);
             }
         }
@@ -142,30 +144,10 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
         xlog_err("=== END EXCEPTION REPORT ===");
 
         siglongjmp(g_current_lj->buf, 1);
-    } else {
+    }
+    else {
         // 非保护调用中的信号处理
         xlog_err("Signal %d in non-protected context, terminating", sig);
-        // 打印堆栈跟踪以便调试
-#ifdef __APPLE__
-        print_macos_stack_trace();
-#else
-        void* callstack[128];
-        int frames = backtrace(callstack, 128);
-        char** symbols = backtrace_symbols(callstack, frames);
-
-        xlog_err("Call stack (%d frames):", frames);
-        for (int i = 0; i < frames && i < 8; ++i) {
-            if (symbols) {
-                xlog_err("  #%d: %s", i, symbols[i]);
-            } else {
-                xlog_err("  #%d: 0x%p", i, callstack[i]);
-            }
-        }
-
-        if (symbols) {
-            free(symbols);
-        }
-#endif
         signal(sig, SIG_DFL);
         raise(sig);
     }
@@ -262,10 +244,12 @@ static void print_windows_stack_trace(PEXCEPTION_POINTERS ExceptionInfo) {
 
             if (SymGetLineFromAddr64(process, stackFrame.AddrPC.Offset, &lineDisplacement, &line)) {
                 xlog_err("  [%d] %s - %s:%d", frameCount, pSymbol->Name, line.FileName, line.LineNumber);
-            } else {
+            }
+            else {
                 xlog_err("  [%d] %s + 0x%llx", frameCount, pSymbol->Name, displacement);
             }
-        } else {
+        }
+        else {
             xlog_err("  [%d] 0x%llx", frameCount, stackFrame.AddrPC.Offset);
         }
     }
@@ -280,22 +264,22 @@ static void print_windows_stack_trace(PEXCEPTION_POINTERS ExceptionInfo) {
 // Windows: Use structured exception handling
 static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
     xlog_err("*** GLOBAL EXCEPTION FILTER: Exception code: 0x%08X ***",
-             ExceptionInfo->ExceptionRecord->ExceptionCode);
+        ExceptionInfo->ExceptionRecord->ExceptionCode);
 
     // 如果是访问违例等严重错误，尝试记录并退出
     switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
-        case EXCEPTION_ACCESS_VIOLATION:
-            xlog_err("Access violation occurred");
-            break;
-        case EXCEPTION_INT_DIVIDE_BY_ZERO:
-            xlog_err("Integer divide by zero");
-            break;
-        case EXCEPTION_STACK_OVERFLOW:
-            xlog_err("Stack overflow");
-            break;
-        default:
-            xlog_err("Unknown exception");
-            break;
+    case EXCEPTION_ACCESS_VIOLATION:
+        xlog_err("Access violation occurred");
+        break;
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:
+        xlog_err("Integer divide by zero");
+        break;
+    case EXCEPTION_STACK_OVERFLOW:
+        xlog_err("Stack overflow");
+        break;
+    default:
+        xlog_err("Unknown exception");
+        break;
     }
 
     // 返回 EXCEPTION_EXECUTE_HANDLER 会让程序继续执行到最近的 __except 块
@@ -312,18 +296,18 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
         // 改进的异常代码描述
         const char* exception_desc = "Unknown";
         switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
-            case 0xC0000005: exception_desc = "EXCEPTION_ACCESS_VIOLATION"; break;
-            case 0xC0000094: exception_desc = "EXCEPTION_INT_DIVIDE_BY_ZERO"; break;
-            case 0xC00000FD: exception_desc = "EXCEPTION_STACK_OVERFLOW"; break;
-            case 0xC0000374: exception_desc = "STATUS_HEAP_CORRUPTION"; break;
-            case 0xC0000409: exception_desc = "STATUS_STACK_BUFFER_OVERRUN"; break;
-            case 0xE06D7363: exception_desc = "CPP_EH_EXCEPTION"; break;
+        case 0xC0000005: exception_desc = "EXCEPTION_ACCESS_VIOLATION"; break;
+        case 0xC0000094: exception_desc = "EXCEPTION_INT_DIVIDE_BY_ZERO"; break;
+        case 0xC00000FD: exception_desc = "EXCEPTION_STACK_OVERFLOW"; break;
+        case 0xC0000374: exception_desc = "STATUS_HEAP_CORRUPTION"; break;
+        case 0xC0000409: exception_desc = "STATUS_STACK_BUFFER_OVERRUN"; break;
+        case 0xE06D7363: exception_desc = "CPP_EH_EXCEPTION"; break;
 
-            case 0xC000008E: exception_desc = "EXCEPTION_FLT_DIVIDE_BY_ZERO"; break;
-            case 0xC0000090: exception_desc = "EXCEPTION_FLT_INVALID_OPERATION"; break;
-            case 0xC0000091: exception_desc = "EXCEPTION_FLT_OVERFLOW"; break;
-            case 0xC0000092: exception_desc = "EXCEPTION_FLT_UNDERFLOW"; break;
-            case 0xC0000093: exception_desc = "EXCEPTION_FLT_INEXACT_RESULT"; break;
+        case 0xC000008E: exception_desc = "EXCEPTION_FLT_DIVIDE_BY_ZERO"; break;
+        case 0xC0000090: exception_desc = "EXCEPTION_FLT_INVALID_OPERATION"; break;
+        case 0xC0000091: exception_desc = "EXCEPTION_FLT_OVERFLOW"; break;
+        case 0xC0000092: exception_desc = "EXCEPTION_FLT_UNDERFLOW"; break;
+        case 0xC0000093: exception_desc = "EXCEPTION_FLT_INEXACT_RESULT"; break;
         }
         xlog_err("Exception: 0x%08X (%s)", ExceptionInfo->ExceptionRecord->ExceptionCode, exception_desc);
 
@@ -345,22 +329,26 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
                 for (USHORT i = 0; i < frames && i < 10; i++) {
                     HMODULE hModule = NULL;
                     if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                                        (LPCTSTR)callstack[i], &hModule)) {
+                        (LPCTSTR)callstack[i], &hModule)) {
                         char modulePath[MAX_PATH];
                         if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
                             uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)hModule;
                             xlog_err("  [%d] 0x%p -> %s + 0x%lx", i, callstack[i], modulePath, offset);
-                        } else {
+                        }
+                        else {
                             xlog_err("  [%d] 0x%p", i, callstack[i]);
                         }
-                    } else {
+                    }
+                    else {
                         xlog_err("  [%d] 0x%p", i, callstack[i]);
                     }
                 }
-            } else {
+            }
+            else {
                 xlog_err("Unable to capture caller stack trace");
             }
-        } else {
+        }
+        else {
             // 正常的堆栈跟踪
             xlog_err("Stack trace:");
             print_windows_stack_trace(ExceptionInfo);
@@ -369,8 +357,8 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
         // Windows下可以尝试获取模块信息
         HMODULE hModule = NULL;
         if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                             (LPCTSTR)ExceptionInfo->ExceptionRecord->ExceptionAddress,
-                             &hModule)) {
+            (LPCTSTR)ExceptionInfo->ExceptionRecord->ExceptionAddress,
+            &hModule)) {
             char modulePath[MAX_PATH];
             if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
                 uintptr_t offset = (uintptr_t)ExceptionInfo->ExceptionRecord->ExceptionAddress - (uintptr_t)hModule;
@@ -382,9 +370,9 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
                     ULONG_PTR access_type = ExceptionInfo->ExceptionRecord->ExceptionInformation[0];
                     ULONG_PTR violation_address = ExceptionInfo->ExceptionRecord->ExceptionInformation[1];
                     const char* access_str = (access_type == 0) ? "read" :
-                                           (access_type == 1) ? "write" : "execute";
+                        (access_type == 1) ? "write" : "execute";
                     xlog_err("Access violation: attempted to %s address 0x%p",
-                            access_str, (void*)violation_address);
+                        access_str, (void*)violation_address);
                 }
             }
         }
@@ -392,7 +380,7 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
         // 添加协程上下文信息
         if (g_current_lj) {
             xlog_err("Coroutine context: protected_call=%d, signal=%d",
-                    g_current_lj->in_protected_call, g_current_lj->sig);
+                g_current_lj->in_protected_call, g_current_lj->sig);
         }
 
         // 获取Windows堆栈跟踪
@@ -420,15 +408,17 @@ static void simple_windows_stack_trace() {
     for (USHORT i = 0; i < frames && i < 10; i++) {
         HMODULE hModule = NULL;
         if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                             (LPCTSTR)callstack[i], &hModule)) {
+            (LPCTSTR)callstack[i], &hModule)) {
             char modulePath[MAX_PATH];
             if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
                 uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)hModule;
                 xlog_err("  [%d] 0x%p -> %s + 0x%lx", i, callstack[i], modulePath, offset);
-            } else {
+            }
+            else {
                 xlog_err("  [%d] 0x%p", i, callstack[i]);
             }
-        } else {
+        }
+        else {
             xlog_err("  [%d] 0x%p", i, callstack[i]);
         }
     }
@@ -452,76 +442,55 @@ private:
 
 // Safe resume implementation for xCoroTask
 bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
-if (!handle_ || handle_.done()) return false;
+    if (!handle_ || handle_.done()) return false;
 
-   // Save current LJ state
-   xCoroutineLJ* old_lj = g_current_lj;
-   g_current_lj = lj;
-   lj->in_protected_call = true;
-   lj->sig = 0;
+    // Save current LJ state
+    xCoroutineLJ* old_lj = g_current_lj;
+    g_current_lj = lj;
+    lj->in_protected_call = true;
+    lj->sig = 0;
 
-   bool success = false;
+    bool success = false;
 
-   // 硬件异常保护
+    // 硬件异常保护
 #ifdef _WIN32
-   if (setjmp(lj->buf) == 0) {
+    if (setjmp(lj->buf) == 0) {
 #else
-   if (sigsetjmp(lj->buf, 1) == 0) {  // Linux下使用sigsetjmp，第二个参数1表示保存信号掩码
+    if (sigsetjmp(lj->buf, 1) == 0) {  // Linux下使用sigsetjmp，第二个参数1表示保存信号掩码
 #endif
-       // 正常执行路径
-       try {
-           handle_.resume();
-           success = true;
-       } catch (const std::exception& e) {
-           xlog_err("C++ exception in coroutine %d: %s",
-                    handle_.promise().coroutine_id, e.what());
-           if (!handle_.promise().exception_ptr) {
-               handle_.promise().exception_ptr = std::current_exception();
-           }
-           success = false;
-       } catch (...) {
-           xlog_err("Unknown C++ exception in coroutine %d", handle_.promise().coroutine_id);
-           if (!handle_.promise().exception_ptr) {
-               handle_.promise().exception_ptr = std::current_exception();
-           }
-           success = false;
-       }
-   } else {
-       // 硬件异常路径
-       xlog_err("=== HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ===",
-                handle_.promise().coroutine_id, lj->sig);
+        // 正常执行路径
+        try {
+            handle_.resume();
+            success = true;
+        }
+        catch (const std::exception& e) {
+            xlog_err("C++ exception in coroutine %d: %s",
+                handle_.promise().coroutine_id, e.what());
+            if (!handle_.promise().exception_ptr) {
+                handle_.promise().exception_ptr = std::current_exception();
+            }
+            success = false;
+        }
+        catch (...) {
+            xlog_err("Unknown C++ exception in coroutine %d", handle_.promise().coroutine_id);
+            if (!handle_.promise().exception_ptr) {
+                handle_.promise().exception_ptr = std::current_exception();
+            }
+            success = false;
+        }
+    }
+    else {
+        // 硬件异常路径
+        xlog_err("*** HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ***",
+            handle_.promise().coroutine_id, lj->sig);
+        handle_.promise().hardware_signal = lj->sig;
+        success = false;
+    }
 
-       // 打印详细堆栈信息
-#ifdef __APPLE__
-       print_macos_stack_trace();
-#else
-       void* callstack[128];
-       int frames = backtrace(callstack, 128);
-       char** symbols = backtrace_symbols(callstack, frames);
-
-       xlog_err("Call stack (%d frames):", frames);
-       for (int i = 0; i < frames && i < 8; ++i) {
-           if (symbols) {
-               xlog_err("  #%d: %s", i, symbols[i]);
-           } else {
-               xlog_err("  #%d: 0x%p", i, callstack[i]);
-           }
-       }
-
-       if (symbols) {
-           free(symbols);
-       }
-#endif
-
-       xlog_err("=== END HARDWARE EXCEPTION REPORT ===");
-       handle_.promise().hardware_signal = lj->sig;
-       success = false;
-   }
-
-   lj->in_protected_call = false;
-   g_current_lj = old_lj;
-   return success;
-}
+    lj->in_protected_call = false;
+    g_current_lj = old_lj;
+    return success;
+    }
 
 // Coroutine manager implementation
 class xCoroService {
@@ -552,7 +521,6 @@ public:
         xnet_mutex_init(&wait_mutex);
 
         // Install hardware exception handlers
-        install_signal_handlers();
     }
 
     ~xCoroService() {
@@ -647,39 +615,19 @@ public:
         // Use setjmp/longjmp for both Windows and Unix
         if (setjmp(creation_lj.buf) == 0) {
             task = func(arg);
-        } else {
+        }
+        else {
             // Hardware exception during coroutine creation
             xlog_err("=== COROUTINE CREATION EXCEPTION ===");
             xlog_err("*** HW EXCEPTION during coroutine %d creation: signal %d ***",
-                    coro_id, creation_lj.sig);
+                coro_id, creation_lj.sig);
 
-            #ifdef _WIN32
-                xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
-                simple_windows_stack_trace();  // 打印简单堆栈跟踪
-            #else
-                xlog_err("Unix signal: %d", creation_lj.sig);
-                // 打印堆栈跟踪
-#ifdef __APPLE__
-                print_macos_stack_trace();
+#ifdef _WIN32
+            xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
+            simple_windows_stack_trace();  // 打印简单堆栈跟踪
 #else
-                void* callstack[128];
-                int frames = backtrace(callstack, 128);
-                char** symbols = backtrace_symbols(callstack, frames);
-
-                xlog_err("Call stack (%d frames):", frames);
-                for (int i = 0; i < frames && i < 8; ++i) {
-                    if (symbols) {
-                        xlog_err("  #%d: %s", i, symbols[i]);
-                    } else {
-                        xlog_err("  #%d: 0x%p", i, callstack[i]);
-                    }
-                }
-
-                if (symbols) {
-                    free(symbols);
-                }
+            xlog_err("Linux signal: %d", creation_lj.sig);
 #endif
-            #endif
 
             xlog_err("=== END CREATION EXCEPTION REPORT ===");
             task = xCoroTask{};
@@ -756,7 +704,7 @@ public:
     }
 private:
     void resume_with_hw_protection(std_coro::coroutine_handle<> handle, int coro_id, const char* context) {
-    if (!handle || handle.done()) return;
+        if (!handle || handle.done()) return;
 
         // 创建临时的硬件保护上下文
         xCoroutineLJ temp_lj;
@@ -780,42 +728,45 @@ private:
             try {
                 handle.resume();
                 xlog_info("Coroutine %d resumed successfully", coro_id);
-            } catch (const std::exception& e) {
+            }
+            catch (const std::exception& e) {
                 xlog_err("C++ exception in coroutine %d: %s", coro_id, e.what());
-            } catch (...) {
+            }
+            catch (...) {
                 xlog_err("Unknown exception in coroutine %d", coro_id);
             }
-        } else {
+        }
+        else {
             // 硬件异常被捕获
             xlog_err("*** HW EXCEPTION in coroutine %d during %s: signal %d ***",
-                    coro_id, context, temp_lj.sig);
+                coro_id, context, temp_lj.sig);
 
-               // 记录Linux特定的信号信息
-   #ifndef _WIN32
-               switch (temp_lj.sig) {
-                   case SIGSEGV:
-                       xlog_err("Segmentation fault in coroutine %d", coro_id);
-                       break;
-                   case SIGFPE:
-                       xlog_err("Floating point exception in coroutine %d", coro_id);
-                       break;
-                   case SIGBUS:
-                       xlog_err("Bus error in coroutine %d", coro_id);
-                       break;
-                   case SIGILL:
-                       xlog_err("Illegal instruction in coroutine %d", coro_id);
-                       break;
-                   default:
-                       xlog_err("Signal %d in coroutine %d", temp_lj.sig, coro_id);
-                       break;
-               }
-   #endif
-           }
+            // 记录Linux特定的信号信息
+#ifndef _WIN32
+            switch (temp_lj.sig) {
+            case SIGSEGV:
+                xlog_err("Segmentation fault in coroutine %d", coro_id);
+                break;
+            case SIGFPE:
+                xlog_err("Floating point exception in coroutine %d", coro_id);
+                break;
+            case SIGBUS:
+                xlog_err("Bus error in coroutine %d", coro_id);
+                break;
+            case SIGILL:
+                xlog_err("Illegal instruction in coroutine %d", coro_id);
+                break;
+            default:
+                xlog_err("Signal %d in coroutine %d", temp_lj.sig, coro_id);
+                break;
+            }
+#endif
+        }
 
-           temp_lj.in_protected_call = false;
-           g_current_lj = old_lj;
-           _co_cid = old_cid;
-       }
+        temp_lj.in_protected_call = false;
+        g_current_lj = old_lj;
+        _co_cid = old_cid;
+        }
 public:
     // -------------------- Wait related --------------------
     void register_waiter(uint32_t wait_id, std_coro::coroutine_handle<> h, int coro_id) {
@@ -836,7 +787,7 @@ public:
         }
     }
 
-    void resume_waiter(uint32_t wait_id, std::vector<VariantType>&& resp) {
+    void resume_waiter(uint32_t wait_id, std::vector<VariantType> && resp) {
         std_coro::coroutine_handle<> to_resume = nullptr;
         int resume_coro_id = -1;
         {
@@ -862,7 +813,7 @@ public:
         wait_map_.erase(it);
         return r;
     }
-};
+    };
 
 // -------------------- Awaiter implementation --------------------
 std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
@@ -876,24 +827,24 @@ std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_hand
 #endif
 }
 
-xAwaiter::xAwaiter() noexcept
+xAwaiter::xAwaiter()
     : wait_id_(_co_svs ? _co_svs->generate_wait_id() : 0)
     , error_code_(0)
     , coro_id_(_co_cid) {  // Save current coroutine ID
 }
 
-xAwaiter::xAwaiter(int err) noexcept
+xAwaiter::xAwaiter(int err)
     : wait_id_(0)
     , error_code_(err)
     , coro_id_(-1) {
 }
 
-void xAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
+void xAwaiter::await_suspend(std_coro::coroutine_handle<> h) {
     if (!_co_svs) return;
     _co_svs->register_waiter(wait_id_, h, coro_id_);
 }
 
-std::vector<VariantType> xAwaiter::await_resume() noexcept {
+std::vector<VariantType> xAwaiter::await_resume() {
     if (error_code_ != 0) {
         std::vector<VariantType> err;
         err.emplace_back(error_code_);
@@ -904,20 +855,23 @@ std::vector<VariantType> xAwaiter::await_resume() noexcept {
     // 添加异常保护
     try {
         return _co_svs->take_wait_result(wait_id_);
-    } catch (const std::bad_variant_access& e) {
+    }
+    catch (const std::bad_variant_access& e) {
         xlog_err("Variant access exception in await_resume for coroutine %d: %s", coro_id_, e.what());
         // 返回错误结果
         std::vector<VariantType> err;
         err.emplace_back(-1);  // 错误码
         err.emplace_back((std::string("Variant access error: ") + e.what()).c_str());
         return err;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         xlog_err("Exception in await_resume for coroutine %d: %s", coro_id_, e.what());
         std::vector<VariantType> err;
         err.emplace_back(-1);
         err.emplace_back((std::string("Exception: ") + e.what()).c_str());
         return err;
-    } catch (...) {
+    }
+    catch (...) {
         xlog_err("Unknown exception in await_resume for coroutine %d", coro_id_);
         std::vector<VariantType> err;
         err.emplace_back(-1);
@@ -931,9 +885,11 @@ bool coroutine_init() {
     if (_co_svs) return true;
     try {
         _co_svs = new xCoroService();
+        install_signal_handlers();
         xlog_info("Coroutine system initialized with hardware exception protection");
         return true;
-    } catch (...) {
+    }
+    catch (...) {
         return false;
     }
 }
