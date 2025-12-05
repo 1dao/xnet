@@ -1,5 +1,6 @@
 ﻿// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
 
+
 #include "xcoroutine.h"
 #include <unordered_map>
 #include <memory>
@@ -65,14 +66,52 @@ static void print_macos_stack_trace() {
     char** symbols = backtrace_symbols(callstack, frames);
 
     xlog_err("Call stack (%d frames):", frames);
-    for (int i = 0; i < frames && i < 8; ++i) {
-        if (symbols) {
+    for (int i = 0; i < frames && i < 16; ++i) {
+        if (symbols && symbols[i]) {
+            // 首先打印原始符号信息
             xlog_err("  #%d: %s", i, symbols[i]);
+
+            // 然后尝试获取更详细的调试信息
+            Dl_info dl_info;
+            if (dladdr(callstack[i], &dl_info)) {
+                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
+                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
+
+                // 使用atos命令获取更详细的符号信息（包括文件名和行号）
+                char cmd[512];
+                snprintf(cmd, sizeof(cmd), "atos -o '%s' -l 0x%lx 0x%lx 2>/dev/null",
+                    module_name, (unsigned long)dl_info.dli_fbase, (unsigned long)callstack[i]);
+
+                FILE* pipe = popen(cmd, "r");
+                if (pipe) {
+                    char buffer[256];
+                    if (fgets(buffer, sizeof(buffer), pipe)) {
+                        // 移除换行符
+                        char* newline = strchr(buffer, '\n');
+                        if (newline) *newline = '\0';
+
+                        // 如果atos返回了有用的信息，则打印
+                        if (strlen(buffer) > 0 && strcmp(buffer, "(unknown)") != 0) {
+                            xlog_err("       -> %s", buffer);
+                        }
+                    }
+                    pclose(pipe);
+                }
+                else {
+                    // 如果atos不可用，回退到基本的符号信息
+                    uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
+                    xlog_err("       -> %s + 0x%lx [%s]", func_name, offset, module_name);
+                }
+            }
         }
         else {
             Dl_info dl_info;
             if (dladdr(callstack[i], &dl_info)) {
-                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
+                uintptr_t base_addr = (uintptr_t)dl_info.dli_fbase;
+                if (base_addr == 0) {
+                    base_addr = get_module_base_address();
+                }
+                uintptr_t offset = (uintptr_t)callstack[i] - base_addr;
                 const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
                 const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
                 xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
@@ -99,11 +138,87 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
             sig == SIGSEGV ? "SIGSEGV" :
             sig == SIGFPE ? "SIGFPE" :
             sig == SIGILL ? "SIGILL" :
-            sig == SIGBUS ? "SIGBUS" : "Unknown");
+            sig == SIGBUS ? "SIGBUS" :
+            sig == SIGABRT ? "SIGABRT" :
+            sig == SIGTRAP ? "SIGTRAP" : "Unknown");
 
         // 打印异常地址信息
         if (info && info->si_addr) {
             print_address_info((uintptr_t)info->si_addr, "Fault address");
+        }
+
+        // 提供更多关于信号的信息
+        if (info) {
+            xlog_err("Signal code: %d", info->si_code);
+#ifdef __APPLE__
+            // macOS 特定的信号码解释
+            const char* code_desc = "unknown";
+            switch (info->si_code) {
+            case SI_USER: code_desc = "kill, sigsend or raise"; break;
+#ifdef SI_KERNEL
+            case SI_KERNEL: code_desc = "kernel"; break;
+#endif
+#ifdef SI_ASYNCIO
+            case SI_ASYNCIO: code_desc = "raised by SIGIO"; break;
+#endif
+#ifdef SI_MESGQ
+            case SI_MESGQ: code_desc = "POSIX message queue"; break;
+#endif
+#ifdef SI_QUEUE
+            case SI_QUEUE: code_desc = "sigqueue"; break;
+#endif
+#ifdef SI_TIMER
+            case SI_TIMER: code_desc = "realtime timer expired"; break;
+#endif
+            default:
+                if (sig == SIGSEGV) {
+                    if (info->si_code == SEGV_MAPERR) code_desc = "address not mapped";
+                    else if (info->si_code == SEGV_ACCERR) code_desc = "invalid permissions";
+                }
+                else if (sig == SIGFPE) {
+                    switch (info->si_code) {
+                    case FPE_INTDIV: code_desc = "integer divide by zero"; break;
+                    case FPE_INTOVF: code_desc = "integer overflow"; break;
+                    case FPE_FLTDIV: code_desc = "floating point divide by zero"; break;
+                    case FPE_FLTOVF: code_desc = "floating point overflow"; break;
+                    case FPE_FLTUND: code_desc = "floating point underflow"; break;
+                    case FPE_FLTRES: code_desc = "floating point inexact result"; break;
+                    case FPE_FLTINV: code_desc = "invalid floating point operation"; break;
+                    case FPE_FLTSUB: code_desc = "subscript out of range"; break;
+                    default: code_desc = "unknown FPE code"; break;
+                    }
+                }
+                else if (sig == SIGILL) {
+                    switch (info->si_code) {
+                    case ILL_ILLOPC: code_desc = "illegal opcode"; break;
+                    case ILL_ILLOPN: code_desc = "illegal operand"; break;
+                    case ILL_ILLADR: code_desc = "illegal addressing mode"; break;
+                    case ILL_ILLTRP: code_desc = "illegal trap"; break;
+                    case ILL_PRVOPC: code_desc = "privileged opcode"; break;
+                    case ILL_PRVREG: code_desc = "privileged register"; break;
+                    case ILL_COPROC: code_desc = "coprocessor error"; break;
+                    case ILL_BADSTK: code_desc = "internal stack error"; break;
+                    default: code_desc = "unknown ILL code"; break;
+                    }
+                }
+                else if (sig == SIGBUS) {
+                    switch (info->si_code) {
+                    case BUS_ADRALN: code_desc = "invalid address alignment"; break;
+                    case BUS_ADRERR: code_desc = "nonexistent physical address"; break;
+                    case BUS_OBJERR: code_desc = "object-specific hardware error"; break;
+#ifdef BUS_MCEERR_AR
+                    case BUS_MCEERR_AR: code_desc = "hardware memory error consumed on a machine check"; break;
+#endif
+#ifdef BUS_MCEERR_AO
+                    case BUS_MCEERR_AO: code_desc = "hardware memory error detected in process but not consumed"; break;
+#endif
+                    default: code_desc = "unknown BUS error"; break;
+                    }
+                }
+                break;
+            }
+            xlog_err("Signal code description: %s", code_desc);
+#endif
         }
 
         // 如果是SIGSEGV，提供更多信息
@@ -146,10 +261,20 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
         siglongjmp(g_current_lj->buf, 1);
     }
     else {
-        // 非保护调用中的信号处理
-        xlog_err("Signal %d in non-protected context, terminating", sig);
+        // 非保护调用中的信号处理 - 在macOS上也应避免直接终止
+        xlog_err("Signal %d in non-protected context, attempting to continue...", sig);
+
+        // 在macOS上尝试恢复执行而不是终止进程
+#ifdef __APPLE__
+        // 记录堆栈信息但不终止
+        print_macos_stack_trace();
+        // 重置信号处理为默认值并返回，让程序有机会继续运行
+        signal(sig, SIG_DFL);
+        return;
+#else
         signal(sig, SIG_DFL);
         raise(sig);
+#endif
     }
 }
 
@@ -159,7 +284,10 @@ static void install_signal_handlers() {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_RESTART;  // 使用SA_SIGINFO获取更多信息
     sa.sa_sigaction = coroutine_signal_handler;  // 使用sa_sigaction而不是sa_handler
-
+    // 在macOS上添加 SA_NODEFER 标志以避免某些情况下信号被阻塞
+#ifdef __APPLE__
+    sa.sa_flags |= SA_NODEFER;
+#endif
     // 安装信号处理器
     sigaction(SIGSEGV, &sa, nullptr);  // 段错误
     sigaction(SIGFPE, &sa, nullptr);   // 浮点异常/除零
@@ -168,7 +296,13 @@ static void install_signal_handlers() {
     sigaction(SIGTRAP, &sa, nullptr);  // 断点/跟踪陷阱
     sigaction(SIGABRT, &sa, nullptr);  // 中止信号
 
-    xlog_info("Unix signal handlers installed");
+    xlog_info("Unix signal handlers installed",
+#ifdef __APPLE__
+        "macOS"
+#else
+        "Linux"
+#endif
+    );
 }
 #else
 #include <windows.h>
@@ -263,25 +397,27 @@ static void print_windows_stack_trace(PEXCEPTION_POINTERS ExceptionInfo) {
 
 // Windows: Use structured exception handling
 static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
-    xlog_err("*** GLOBAL EXCEPTION FILTER: Exception code: 0x%08X ***",
-        ExceptionInfo->ExceptionRecord->ExceptionCode);
+    // 只在非协程环境中记录全局异常，避免与协程异常处理器冲突
+    if (!g_current_lj || !g_current_lj->in_protected_call) {
+        xlog_err("*** GLOBAL EXCEPTION FILTER: Exception code: 0x%08X ***",
+            ExceptionInfo->ExceptionRecord->ExceptionCode);
 
-    // 如果是访问违例等严重错误，尝试记录并退出
-    switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
-    case EXCEPTION_ACCESS_VIOLATION:
-        xlog_err("Access violation occurred");
-        break;
-    case EXCEPTION_INT_DIVIDE_BY_ZERO:
-        xlog_err("Integer divide by zero");
-        break;
-    case EXCEPTION_STACK_OVERFLOW:
-        xlog_err("Stack overflow");
-        break;
-    default:
-        xlog_err("Unknown exception");
-        break;
+        // 如果是访问违例等严重错误，尝试记录并退出
+        switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
+        case EXCEPTION_ACCESS_VIOLATION:
+            xlog_err("Access violation occurred");
+            break;
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:
+            xlog_err("Integer divide by zero");
+            break;
+        case EXCEPTION_STACK_OVERFLOW:
+            xlog_err("Stack overflow");
+            break;
+        default:
+            xlog_err("Unknown exception");
+            break;
+        }
     }
-
     // 返回 EXCEPTION_EXECUTE_HANDLER 会让程序继续执行到最近的 __except 块
     // 返回 EXCEPTION_CONTINUE_SEARCH 会让系统继续寻找异常处理器
     return EXCEPTION_CONTINUE_SEARCH;
@@ -383,9 +519,9 @@ static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo
                 g_current_lj->in_protected_call, g_current_lj->sig);
         }
 
-        // 获取Windows堆栈跟踪
-        xlog_err("Stack trace:");
-        print_windows_stack_trace(ExceptionInfo);
+        //// 获取Windows堆栈跟踪
+        //xlog_err("Stack trace:");
+        //print_windows_stack_trace(ExceptionInfo);
 
         xlog_err("=== END EXCEPTION REPORT ===");
 
