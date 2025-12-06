@@ -1,6 +1,5 @@
 ﻿// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
 
-
 #include "xcoroutine.h"
 #include <unordered_map>
 #include <memory>
@@ -10,284 +9,84 @@
 #include "xmutex.h"
 #include "xlog.h"
 
+// 包含堆栈跟踪实现
+#include "xtraceback.inl"
+
 // Forward declaration
 class xCoroService;
 
 // Singleton instance
-static xCoroService* _co_svs = nullptr;
+static thread_local xCoroService* _co_svs = nullptr;
 
 // Thread local storage
 static thread_local int _co_cid = -1;
 
 // Global longjmp context for hardware exception protection
-static thread_local xCoroutineLJ* g_current_lj = nullptr;
+static thread_local xCoroutineLJ* _cur_lj = nullptr;
 
-// Signal handler for Unix/Linux systems
-#ifndef _WIN32
-// 添加必要的头文件
-#include <dlfcn.h>
-#include <execinfo.h>
+// ==============================================
+// 平台特定异常处理实现
+// ==============================================
 
-// macOS 上没有 link.h，使用替代方案
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
-#include <mach-o/getsect.h>
-#else
-#include <link.h>  // 用于获取模块信息（仅 Linux）
-#endif
-
-// 辅助函数：获取模块基地址
-static uintptr_t get_module_base_address() {
-    Dl_info info;
-    if (dladdr((void*)get_module_base_address, &info)) {
-        return (uintptr_t)info.dli_fbase;
-    }
-    return 0;
-}
-
-// 辅助函数：解析地址到模块相对地址
-static void print_address_info(uintptr_t addr, const char* prefix) {
-    Dl_info info;
-    if (dladdr((void*)addr, &info)) {
-        uintptr_t offset = addr - (uintptr_t)info.dli_fbase;
-        xlog_err("%s: 0x%lx (module: %s, offset: 0x%lx)",
-            prefix, addr, info.dli_fname ? info.dli_fname : "unknown", offset);
-    }
-    else {
-        xlog_err("%s: 0x%lx (unknown module)", prefix, addr);
-    }
-}
-
-// macOS 特定的堆栈跟踪辅助函数
-#ifdef __APPLE__
-static void print_macos_stack_trace() {
-    void* callstack[128];
-    int frames = backtrace(callstack, 128);
-    char** symbols = backtrace_symbols(callstack, frames);
-
-    xlog_err("Call stack (%d frames):", frames);
-    for (int i = 0; i < frames && i < 16; ++i) {
-        if (symbols && symbols[i]) {
-            // 首先打印原始符号信息
-            xlog_err("  #%d: %s", i, symbols[i]);
-
-            // 然后尝试获取更详细的调试信息
-            Dl_info dl_info;
-            if (dladdr(callstack[i], &dl_info)) {
-                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
-                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
-
-                // 使用atos命令获取更详细的符号信息（包括文件名和行号）
-                char cmd[512];
-                snprintf(cmd, sizeof(cmd), "atos -o '%s' -l 0x%lx 0x%lx 2>/dev/null",
-                    module_name, (unsigned long)dl_info.dli_fbase, (unsigned long)callstack[i]);
-
-                FILE* pipe = popen(cmd, "r");
-                if (pipe) {
-                    char buffer[256];
-                    if (fgets(buffer, sizeof(buffer), pipe)) {
-                        // 移除换行符
-                        char* newline = strchr(buffer, '\n');
-                        if (newline) *newline = '\0';
-
-                        // 如果atos返回了有用的信息，则打印
-                        if (strlen(buffer) > 0 && strcmp(buffer, "(unknown)") != 0) {
-                            xlog_err("       -> %s", buffer);
-                        }
-                    }
-                    pclose(pipe);
-                }
-                else {
-                    // 如果atos不可用，回退到基本的符号信息
-                    uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
-                    xlog_err("       -> %s + 0x%lx [%s]", func_name, offset, module_name);
-                }
-            }
-        }
-        else {
-            Dl_info dl_info;
-            if (dladdr(callstack[i], &dl_info)) {
-                uintptr_t base_addr = (uintptr_t)dl_info.dli_fbase;
-                if (base_addr == 0) {
-                    base_addr = get_module_base_address();
-                }
-                uintptr_t offset = (uintptr_t)callstack[i] - base_addr;
-                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
-                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
-                xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
-            }
-            else {
-                xlog_err("  #%d: 0x%p", i, callstack[i]);
-            }
-        }
-    }
-
-    if (symbols) {
-        free(symbols);
-    }
-}
-#endif
-
+#if XCORO_PLATFORM_UNIX
+// Unix信号处理器
 static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
-    if (g_current_lj && g_current_lj->in_protected_call) {
-        g_current_lj->sig = sig;
+    // 协程保护上下文中的硬件异常
+    if (_cur_lj && _cur_lj->in_protected_call) {
+        _cur_lj->sig = sig;
+        // 保存异常发生时的上下文
+        _cur_lj->ucontext = (ucontext_t*)context;
 
         // 记录详细的信号和地址信息
         xlog_err("=== HARDWARE EXCEPTION DETECTED ===");
-        xlog_err("Signal: %d (%s)", sig,
-            sig == SIGSEGV ? "SIGSEGV" :
-            sig == SIGFPE ? "SIGFPE" :
-            sig == SIGILL ? "SIGILL" :
-            sig == SIGBUS ? "SIGBUS" :
-            sig == SIGABRT ? "SIGABRT" :
-            sig == SIGTRAP ? "SIGTRAP" : "Unknown");
+
+        // 使用堆栈跟踪接口获取信号名称
+        xlog_err("Signal: %d (%s)", sig, xtraceback_sig_name(sig));
 
         // 打印异常地址信息
         if (info && info->si_addr) {
-            print_address_info((uintptr_t)info->si_addr, "Fault address");
+            xtraceback_print_addr_ex((uintptr_t)info->si_addr, "Fault address");
         }
 
         // 提供更多关于信号的信息
         if (info) {
             xlog_err("Signal code: %d", info->si_code);
-#ifdef __APPLE__
-            // macOS 特定的信号码解释
-            const char* code_desc = "unknown";
-            switch (info->si_code) {
-            case SI_USER: code_desc = "kill, sigsend or raise"; break;
-#ifdef SI_KERNEL
-            case SI_KERNEL: code_desc = "kernel"; break;
-#endif
-#ifdef SI_ASYNCIO
-            case SI_ASYNCIO: code_desc = "raised by SIGIO"; break;
-#endif
-#ifdef SI_MESGQ
-            case SI_MESGQ: code_desc = "POSIX message queue"; break;
-#endif
-#ifdef SI_QUEUE
-            case SI_QUEUE: code_desc = "sigqueue"; break;
-#endif
-#ifdef SI_TIMER
-            case SI_TIMER: code_desc = "realtime timer expired"; break;
-#endif
-            default:
-                if (sig == SIGSEGV) {
-                    if (info->si_code == SEGV_MAPERR) code_desc = "address not mapped";
-                    else if (info->si_code == SEGV_ACCERR) code_desc = "invalid permissions";
-                }
-                else if (sig == SIGFPE) {
-                    switch (info->si_code) {
-                    case FPE_INTDIV: code_desc = "integer divide by zero"; break;
-                    case FPE_INTOVF: code_desc = "integer overflow"; break;
-                    case FPE_FLTDIV: code_desc = "floating point divide by zero"; break;
-                    case FPE_FLTOVF: code_desc = "floating point overflow"; break;
-                    case FPE_FLTUND: code_desc = "floating point underflow"; break;
-                    case FPE_FLTRES: code_desc = "floating point inexact result"; break;
-                    case FPE_FLTINV: code_desc = "invalid floating point operation"; break;
-                    case FPE_FLTSUB: code_desc = "subscript out of range"; break;
-                    default: code_desc = "unknown FPE code"; break;
-                    }
-                }
-                else if (sig == SIGILL) {
-                    switch (info->si_code) {
-                    case ILL_ILLOPC: code_desc = "illegal opcode"; break;
-                    case ILL_ILLOPN: code_desc = "illegal operand"; break;
-                    case ILL_ILLADR: code_desc = "illegal addressing mode"; break;
-                    case ILL_ILLTRP: code_desc = "illegal trap"; break;
-                    case ILL_PRVOPC: code_desc = "privileged opcode"; break;
-                    case ILL_PRVREG: code_desc = "privileged register"; break;
-                    case ILL_COPROC: code_desc = "coprocessor error"; break;
-                    case ILL_BADSTK: code_desc = "internal stack error"; break;
-                    default: code_desc = "unknown ILL code"; break;
-                    }
-                }
-                else if (sig == SIGBUS) {
-                    switch (info->si_code) {
-                    case BUS_ADRALN: code_desc = "invalid address alignment"; break;
-                    case BUS_ADRERR: code_desc = "nonexistent physical address"; break;
-                    case BUS_OBJERR: code_desc = "object-specific hardware error"; break;
-#ifdef BUS_MCEERR_AR
-                    case BUS_MCEERR_AR: code_desc = "hardware memory error consumed on a machine check"; break;
-#endif
-#ifdef BUS_MCEERR_AO
-                    case BUS_MCEERR_AO: code_desc = "hardware memory error detected in process but not consumed"; break;
-#endif
-                    default: code_desc = "unknown BUS error"; break;
-                    }
-                }
-                break;
-            }
+
+            // 使用堆栈跟踪接口获取信号描述
+            const char* code_desc = xtraceback_get_sig_desc(sig, info->si_code);
             xlog_err("Signal code description: %s", code_desc);
-#endif
         }
 
-        // 如果是SIGSEGV，提供更多信息
-        if (sig == SIGSEGV && info && info->si_code > 0) {
-            const char* access_type = "unknown";
-#ifdef __linux__
-            if (info->si_code == SEGV_MAPERR) access_type = "address not mapped";
-            else if (info->si_code == SEGV_ACCERR) access_type = "invalid permissions";
-#elif defined(__APPLE__)
-            if (info->si_code == SEGV_MAPERR) access_type = "address not mapped";
-            else if (info->si_code == SEGV_ACCERR) access_type = "invalid permissions";
-#endif
-            xlog_err("Access violation type: %s", access_type);
-        }
+        // 使用统一的堆栈跟踪接口
+        xtraceback_with_ctx(context);
 
-        // 获取调用栈
-#ifdef __APPLE__
-        print_macos_stack_trace();
-#else
-        void* callstack[128];
-        int frames = backtrace(callstack, 128);
-
-        xlog_err("Call stack (%d frames):", frames);
-        for (int i = 0; i < frames && i < 8; ++i) {  // 限制为8帧
-            Dl_info dl_info;
-            if (dladdr(callstack[i], &dl_info)) {
-                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)dl_info.dli_fbase;
-                const char* func_name = dl_info.dli_sname ? dl_info.dli_sname : "??";
-                const char* module_name = dl_info.dli_fname ? dl_info.dli_fname : "unknown";
-
-                xlog_err("  #%d: %s + 0x%lx [%s]", i, func_name, offset, module_name);
-            }
-            else {
-                xlog_err("  #%d: 0x%p", i, callstack[i]);
-            }
-        }
-#endif
         xlog_err("=== END EXCEPTION REPORT ===");
 
-        siglongjmp(g_current_lj->buf, 1);
-    }
-    else {
-        // 非保护调用中的信号处理 - 在macOS上也应避免直接终止
-        xlog_err("Signal %d in non-protected context, attempting to continue...", sig);
+        // 跳转回协程保护点，协程退出但进程继续
+        siglongjmp(_cur_lj->buf, 1);
+    } else { // 非协程上下文的硬件异常（主线程或其他非协程代码）
+        xlog_err("Signal %d in non-protected context, terminating process...", sig);
 
-        // 在macOS上尝试恢复执行而不是终止进程
-#ifdef __APPLE__
-        // 记录堆栈信息但不终止
-        print_macos_stack_trace();
-        // 重置信号处理为默认值并返回，让程序有机会继续运行
-        signal(sig, SIG_DFL);
-        return;
-#else
+        // 打印堆栈跟踪
+        xtraceback_with_ctx(context);
+
+        // 非协程上下文中的异常是致命的，应该终止进程
         signal(sig, SIG_DFL);
         raise(sig);
-#endif
     }
 }
 
-// 安装信号处理器
-static void install_signal_handlers() {
+// 安装Unix信号处理器
+static void install_unix_signal_handlers() {
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_SIGINFO | SA_RESTART;  // 使用SA_SIGINFO获取更多信息
-    sa.sa_sigaction = coroutine_signal_handler;  // 使用sa_sigaction而不是sa_handler
-    // 在macOS上添加 SA_NODEFER 标志以避免某些情况下信号被阻塞
-#ifdef __APPLE__
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sa.sa_sigaction = coroutine_signal_handler;
+
+#if XCORO_PLATFORM_APPLE
     sa.sa_flags |= SA_NODEFER;
 #endif
+
     // 安装信号处理器
     sigaction(SIGSEGV, &sa, nullptr);  // 段错误
     sigaction(SIGFPE, &sa, nullptr);   // 浮点异常/除零
@@ -296,109 +95,72 @@ static void install_signal_handlers() {
     sigaction(SIGTRAP, &sa, nullptr);  // 断点/跟踪陷阱
     sigaction(SIGABRT, &sa, nullptr);  // 中止信号
 
-    xlog_info("Unix signal handlers installed",
-#ifdef __APPLE__
+    xlog_info("Unix signal handlers installed for %s",
+#if XCORO_PLATFORM_APPLE
         "macOS"
 #else
         "Linux"
 #endif
     );
 }
-#else
-#include <windows.h>
-#include <dbghelp.h>
-#pragma comment(lib, "dbghelp.lib")
 
-// Windows堆栈跟踪函数
-static void print_windows_stack_trace(PEXCEPTION_POINTERS ExceptionInfo) {
-    HANDLE process = GetCurrentProcess();
-    HANDLE thread = GetCurrentThread();
+#elif XCORO_PLATFORM_WINDOWS
+// Windows异常处理器
+static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo) {
+    // 协程保护上下文中的异常
+    if (_cur_lj && _cur_lj->in_protected_call) {
+        _cur_lj->sig = ExceptionInfo->ExceptionRecord->ExceptionCode;
 
-    // 初始化符号处理（添加错误检查）
-    if (!SymInitialize(process, NULL, TRUE)) {
-        xlog_err("  SymInitialize failed, error: %lu", GetLastError());
-        return;
-    }
+        xlog_err("=== WINDOWS HARDWARE EXCEPTION DETECTED ===");
 
-    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+        // 使用堆栈跟踪接口获取异常名称
+        xlog_err("Exception: 0x%08X (%s)",
+            ExceptionInfo->ExceptionRecord->ExceptionCode,
+            xtraceback_sig_name(ExceptionInfo->ExceptionRecord->ExceptionCode));
 
-    // 获取上下文
-    CONTEXT context = *ExceptionInfo->ContextRecord;
+        xlog_err("Exception address: 0x%p",
+            ExceptionInfo->ExceptionRecord->ExceptionAddress);
 
-    // 初始化堆栈帧
-    STACKFRAME64 stackFrame;
-    ZeroMemory(&stackFrame, sizeof(STACKFRAME64));
-
-#ifdef _M_AMD64
-    stackFrame.AddrPC.Offset = context.Rip;
-    stackFrame.AddrPC.Mode = AddrModeFlat;
-    stackFrame.AddrFrame.Offset = context.Rsp;
-    stackFrame.AddrFrame.Mode = AddrModeFlat;
-    stackFrame.AddrStack.Offset = context.Rsp;
-    stackFrame.AddrStack.Mode = AddrModeFlat;
-#else
-    stackFrame.AddrPC.Offset = context.Eip;
-    stackFrame.AddrPC.Mode = AddrModeFlat;
-    stackFrame.AddrFrame.Offset = context.Ebp;
-    stackFrame.AddrFrame.Mode = AddrModeFlat;
-    stackFrame.AddrStack.Offset = context.Esp;
-    stackFrame.AddrStack.Mode = AddrModeFlat;
-#endif
-
-    xlog_err("Stack trace:");
-    int frameCount = 0;
-
-    while (frameCount < 10) {  // 限制为10帧
-        if (!StackWalk64(
-#ifdef _M_AMD64
-            IMAGE_FILE_MACHINE_AMD64,
-#else
-            IMAGE_FILE_MACHINE_I386,
-#endif
-            process, thread, &stackFrame, &context, NULL,
-            SymFunctionTableAccess64, SymGetModuleBase64, NULL)) {
-            break;
-        }
-
-        if (stackFrame.AddrPC.Offset == 0) break;
-        frameCount++;
-
-        // 获取符号信息
-        DWORD64 displacement = 0;
-        char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
-        PSYMBOL_INFO pSymbol = (PSYMBOL_INFO)buffer;
-        pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
-        pSymbol->MaxNameLen = MAX_SYM_NAME;
-
-        if (SymFromAddr(process, stackFrame.AddrPC.Offset, &displacement, pSymbol)) {
-            // 获取行号信息
-            IMAGEHLP_LINE64 line;
-            line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
-            DWORD lineDisplacement = 0;
-
-            if (SymGetLineFromAddr64(process, stackFrame.AddrPC.Offset, &lineDisplacement, &line)) {
-                xlog_err("  [%d] %s - %s:%d", frameCount, pSymbol->Name, line.FileName, line.LineNumber);
-            }
-            else {
-                xlog_err("  [%d] %s + 0x%llx", frameCount, pSymbol->Name, displacement);
+        // 特殊处理：空指针函数调用
+        if (ExceptionInfo->ExceptionRecord->ExceptionCode == 0xC0000005 &&
+            ExceptionInfo->ExceptionRecord->ExceptionAddress == 0) {
+            xlog_err("*** NULL POINTER FUNCTION CALL DETECTED ***");
+            xlog_err("Attempted to call a function through a null pointer");
+        } else {
+            // 如果是访问违例，提供更多细节
+            if (ExceptionInfo->ExceptionRecord->ExceptionCode == 0xC0000005) {
+                // EXCEPTION_ACCESS_VIOLATION
+                ULONG_PTR access_type = ExceptionInfo->ExceptionRecord->ExceptionInformation[0];
+                ULONG_PTR violation_address = ExceptionInfo->ExceptionRecord->ExceptionInformation[1];
+                const char* access_str = (access_type == 0) ? "read" :
+                    (access_type == 1) ? "write" : "execute";
+                xlog_err("Access violation: attempted to %s address 0x%p",
+                    access_str, (void*)violation_address);
             }
         }
-        else {
-            xlog_err("  [%d] 0x%llx", frameCount, stackFrame.AddrPC.Offset);
+
+        // 使用统一的堆栈跟踪接口
+        xtraceback_with_ctx(ExceptionInfo);
+
+        // 添加协程上下文信息
+        if (_cur_lj) {
+            xlog_err("Coroutine context: protected_call=%d, signal=%d",
+                _cur_lj->in_protected_call, _cur_lj->sig);
         }
+
+        xlog_err("=== END EXCEPTION REPORT ===");
+
+        longjmp(_cur_lj->buf, 1);
     }
 
-    if (frameCount == 0) {
-        xlog_err("  No stack frames captured");
-    }
-
-    SymCleanup(process);
+    // 非协程上下文中的异常，继续搜索处理器
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
-// Windows: Use structured exception handling
+// Windows全局异常过滤器
 static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
-    // 只在非协程环境中记录全局异常，避免与协程异常处理器冲突
-    if (!g_current_lj || !g_current_lj->in_protected_call) {
+    // 只在非协程环境中记录全局异常
+    if (!_cur_lj || !_cur_lj->in_protected_call) {
         xlog_err("*** GLOBAL EXCEPTION FILTER: Exception code: 0x%08X ***",
             ExceptionInfo->ExceptionRecord->ExceptionCode);
 
@@ -417,151 +179,41 @@ static LONG WINAPI global_exception_filter(PEXCEPTION_POINTERS ExceptionInfo) {
             xlog_err("Unknown exception");
             break;
         }
+
+        // 打印堆栈跟踪
+        xtraceback_with_ctx(ExceptionInfo);
+
+        xlog_err("Non-coroutine context exception is fatal, terminating process");
     }
-    // 返回 EXCEPTION_EXECUTE_HANDLER 会让程序继续执行到最近的 __except 块
-    // 返回 EXCEPTION_CONTINUE_SEARCH 会让系统继续寻找异常处理器
+
+    // 返回 EXCEPTION_CONTINUE_SEARCH 让系统继续寻找异常处理器
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-static LONG WINAPI coroutine_exception_handler(PEXCEPTION_POINTERS ExceptionInfo) {
-    if (g_current_lj && g_current_lj->in_protected_call) {
-        g_current_lj->sig = ExceptionInfo->ExceptionRecord->ExceptionCode;
-
-        xlog_err("=== WINDOWS HARDWARE EXCEPTION DETECTED ===");
-
-        // 改进的异常代码描述
-        const char* exception_desc = "Unknown";
-        switch (ExceptionInfo->ExceptionRecord->ExceptionCode) {
-        case 0xC0000005: exception_desc = "EXCEPTION_ACCESS_VIOLATION"; break;
-        case 0xC0000094: exception_desc = "EXCEPTION_INT_DIVIDE_BY_ZERO"; break;
-        case 0xC00000FD: exception_desc = "EXCEPTION_STACK_OVERFLOW"; break;
-        case 0xC0000374: exception_desc = "STATUS_HEAP_CORRUPTION"; break;
-        case 0xC0000409: exception_desc = "STATUS_STACK_BUFFER_OVERRUN"; break;
-        case 0xE06D7363: exception_desc = "CPP_EH_EXCEPTION"; break;
-
-        case 0xC000008E: exception_desc = "EXCEPTION_FLT_DIVIDE_BY_ZERO"; break;
-        case 0xC0000090: exception_desc = "EXCEPTION_FLT_INVALID_OPERATION"; break;
-        case 0xC0000091: exception_desc = "EXCEPTION_FLT_OVERFLOW"; break;
-        case 0xC0000092: exception_desc = "EXCEPTION_FLT_UNDERFLOW"; break;
-        case 0xC0000093: exception_desc = "EXCEPTION_FLT_INEXACT_RESULT"; break;
-        }
-        xlog_err("Exception: 0x%08X (%s)", ExceptionInfo->ExceptionRecord->ExceptionCode, exception_desc);
-
-        xlog_err("Exception address: 0x%p", ExceptionInfo->ExceptionRecord->ExceptionAddress);
-
-        // 特殊处理：空指针函数调用
-        if (ExceptionInfo->ExceptionRecord->ExceptionCode == 0xC0000005 &&
-            ExceptionInfo->ExceptionRecord->ExceptionAddress == 0) {
-            xlog_err("*** NULL POINTER FUNCTION CALL DETECTED ***");
-            xlog_err("Attempted to call a function through a null pointer");
-
-            // 尝试获取调用者的堆栈信息
-            xlog_err("Attempting to capture caller stack trace...");
-            void* callstack[64];
-            USHORT frames = CaptureStackBackTrace(1, 64, callstack, NULL);  // 从第1帧开始（跳过当前异常）
-
-            if (frames > 0) {
-                xlog_err("Caller stack trace (%d frames):", frames);
-                for (USHORT i = 0; i < frames && i < 10; i++) {
-                    HMODULE hModule = NULL;
-                    if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                        (LPCTSTR)callstack[i], &hModule)) {
-                        char modulePath[MAX_PATH];
-                        if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
-                            uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)hModule;
-                            xlog_err("  [%d] 0x%p -> %s + 0x%lx", i, callstack[i], modulePath, offset);
-                        }
-                        else {
-                            xlog_err("  [%d] 0x%p", i, callstack[i]);
-                        }
-                    }
-                    else {
-                        xlog_err("  [%d] 0x%p", i, callstack[i]);
-                    }
-                }
-            }
-            else {
-                xlog_err("Unable to capture caller stack trace");
-            }
-        }
-        else {
-            // 正常的堆栈跟踪
-            xlog_err("Stack trace:");
-            print_windows_stack_trace(ExceptionInfo);
-        }
-
-        // Windows下可以尝试获取模块信息
-        HMODULE hModule = NULL;
-        if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-            (LPCTSTR)ExceptionInfo->ExceptionRecord->ExceptionAddress,
-            &hModule)) {
-            char modulePath[MAX_PATH];
-            if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
-                uintptr_t offset = (uintptr_t)ExceptionInfo->ExceptionRecord->ExceptionAddress - (uintptr_t)hModule;
-                xlog_err("Exception in module: %s + 0x%lx", modulePath, offset);
-
-                // 额外信息：如果是访问违例，提供更多细节
-                if (ExceptionInfo->ExceptionRecord->ExceptionCode == 0xC0000005) {
-                    // EXCEPTION_ACCESS_VIOLATION
-                    ULONG_PTR access_type = ExceptionInfo->ExceptionRecord->ExceptionInformation[0];
-                    ULONG_PTR violation_address = ExceptionInfo->ExceptionRecord->ExceptionInformation[1];
-                    const char* access_str = (access_type == 0) ? "read" :
-                        (access_type == 1) ? "write" : "execute";
-                    xlog_err("Access violation: attempted to %s address 0x%p",
-                        access_str, (void*)violation_address);
-                }
-            }
-        }
-
-        // 添加协程上下文信息
-        if (g_current_lj) {
-            xlog_err("Coroutine context: protected_call=%d, signal=%d",
-                g_current_lj->in_protected_call, g_current_lj->sig);
-        }
-
-        //// 获取Windows堆栈跟踪
-        //xlog_err("Stack trace:");
-        //print_windows_stack_trace(ExceptionInfo);
-
-        xlog_err("=== END EXCEPTION REPORT ===");
-
-        longjmp(g_current_lj->buf, 1);
-    }
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-
-static void install_signal_handlers() {
-    // Install vectored exception handler for Windows
+// 安装Windows异常处理器
+static void install_windows_exception_handlers() {
     SetUnhandledExceptionFilter(global_exception_filter);
     AddVectoredExceptionHandler(1, coroutine_exception_handler);
+    xlog_info("Windows exception handlers installed");
 }
+#endif // 平台判断结束
 
-static void simple_windows_stack_trace() {
-    void* callstack[64];
-    USHORT frames = CaptureStackBackTrace(0, 64, callstack, NULL);
+// ==============================================
+// 统一的异常处理器安装
+// ==============================================
 
-    xlog_err("Stack trace (%d frames):", frames);
-    for (USHORT i = 0; i < frames && i < 10; i++) {
-        HMODULE hModule = NULL;
-        if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-            (LPCTSTR)callstack[i], &hModule)) {
-            char modulePath[MAX_PATH];
-            if (GetModuleFileNameA(hModule, modulePath, MAX_PATH)) {
-                uintptr_t offset = (uintptr_t)callstack[i] - (uintptr_t)hModule;
-                xlog_err("  [%d] 0x%p -> %s + 0x%lx", i, callstack[i], modulePath, offset);
-            }
-            else {
-                xlog_err("  [%d] 0x%p", i, callstack[i]);
-            }
-        }
-        else {
-            xlog_err("  [%d] 0x%p", i, callstack[i]);
-        }
-    }
-}
+static void install_signal_handlers() {
+#if XCORO_PLATFORM_WINDOWS
+    install_windows_exception_handlers();
+#elif XCORO_PLATFORM_UNIX
+    install_unix_signal_handlers();
 #endif
+}
 
+// ==============================================
 // Mutex RAII wrapper
+// ==============================================
+
 class XMutexGuard {
 public:
     explicit XMutexGuard(xMutex* mutex) : m_mutex(mutex) {
@@ -576,20 +228,23 @@ private:
     xMutex* m_mutex;
 };
 
+// ==============================================
 // Safe resume implementation for xCoroTask
+// ==============================================
+
 bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
     if (!handle_ || handle_.done()) return false;
 
     // Save current LJ state
-    xCoroutineLJ* old_lj = g_current_lj;
-    g_current_lj = lj;
+    xCoroutineLJ* old_lj = _cur_lj;
+    _cur_lj = lj;
     lj->in_protected_call = true;
     lj->sig = 0;
 
     bool success = false;
 
     // 硬件异常保护
-#ifdef _WIN32
+#if XCORO_PLATFORM_WINDOWS
     if (setjmp(lj->buf) == 0) {
 #else
     if (sigsetjmp(lj->buf, 1) == 0) {  // Linux下使用sigsetjmp，第二个参数1表示保存信号掩码
@@ -624,11 +279,14 @@ bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
     }
 
     lj->in_protected_call = false;
-    g_current_lj = old_lj;
+    _cur_lj = old_lj;
     return success;
-    }
+}
 
+// ==============================================
 // Coroutine manager implementation
+// ==============================================
+
 class xCoroService {
 public:
     // Forward declaration of xCoro
@@ -655,8 +313,6 @@ public:
     xCoroService() {
         xnet_mutex_init(&map_mutex);
         xnet_mutex_init(&wait_mutex);
-
-        // Install hardware exception handlers
     }
 
     ~xCoroService() {
@@ -745,24 +401,28 @@ public:
         creation_lj.in_protected_call = true;
 
         // Use hardware exception protection for coroutine creation
-        xCoroutineLJ* old_lj = g_current_lj;
-        g_current_lj = &creation_lj;
+        xCoroutineLJ* old_lj = _cur_lj;
+        _cur_lj = &creation_lj;
 
         // Use setjmp/longjmp for both Windows and Unix
+#if XCORO_PLATFORM_WINDOWS
         if (setjmp(creation_lj.buf) == 0) {
+#else
+        if (sigsetjmp(creation_lj.buf, 1) == 0) {
+#endif
             task = func(arg);
-        }
-        else {
+        } else {
             // Hardware exception during coroutine creation
             xlog_err("=== COROUTINE CREATION EXCEPTION ===");
             xlog_err("*** HW EXCEPTION during coroutine %d creation: signal %d ***",
                 coro_id, creation_lj.sig);
 
-#ifdef _WIN32
+#if XCORO_PLATFORM_WINDOWS
             xlog_err("Windows exception code: 0x%08X", creation_lj.sig);
-            simple_windows_stack_trace();  // 打印简单堆栈跟踪
+            // 打印简单堆栈跟踪
+            xtraceback_print();
 #else
-            xlog_err("Linux signal: %d", creation_lj.sig);
+            xlog_err("Unix signal: %d", creation_lj.sig);
 #endif
 
             xlog_err("=== END CREATION EXCEPTION REPORT ===");
@@ -770,7 +430,7 @@ public:
         }
 
         creation_lj.in_protected_call = false;
-        g_current_lj = old_lj;
+        _cur_lj = old_lj;
         _co_cid = old_id;
 
         if (task.done() || !task.handle_) {
@@ -782,7 +442,7 @@ public:
         XMutexGuard guard(&map_mutex);
         coroutine_map_[coro_id] = std::make_unique<xCoro>(std::move(task), coro_id);
         return coro_id;
-    }
+        }
 
     bool resume_coroutine(int id, void* param) {
         xCoro* coro = find_coroutine_by_id(id);
@@ -838,6 +498,7 @@ public:
         }
         return count;
     }
+
 private:
     void resume_with_hw_protection(std_coro::coroutine_handle<> handle, int coro_id, const char* context) {
         if (!handle || handle.done()) return;
@@ -848,15 +509,15 @@ private:
         temp_lj.sig = 0;
         temp_lj.in_protected_call = true;
 
-        xCoroutineLJ* old_lj = g_current_lj;
-        g_current_lj = &temp_lj;
+        xCoroutineLJ* old_lj = _cur_lj;
+        _cur_lj = &temp_lj;
         int old_cid = _co_cid;
         _co_cid = coro_id;
 
         xlog_info("Safe resuming coroutine %d with HW protection in context: %s", coro_id, context);
 
         // 硬件异常保护
-#ifdef _WIN32
+#if XCORO_PLATFORM_WINDOWS
         if (setjmp(temp_lj.buf) == 0) {
 #else
         if (sigsetjmp(temp_lj.buf, 1) == 0) {  // Linux下使用sigsetjmp
@@ -878,7 +539,7 @@ private:
                 coro_id, context, temp_lj.sig);
 
             // 记录Linux特定的信号信息
-#ifndef _WIN32
+#if XCORO_PLATFORM_UNIX
             switch (temp_lj.sig) {
             case SIGSEGV:
                 xlog_err("Segmentation fault in coroutine %d", coro_id);
@@ -900,9 +561,10 @@ private:
         }
 
         temp_lj.in_protected_call = false;
-        g_current_lj = old_lj;
+        _cur_lj = old_lj;
         _co_cid = old_cid;
         }
+
 public:
     // -------------------- Wait related --------------------
     void register_waiter(uint32_t wait_id, std_coro::coroutine_handle<> h, int coro_id) {
@@ -951,7 +613,10 @@ public:
     }
     };
 
-// -------------------- Awaiter implementation --------------------
+// ==============================================
+// Awaiter implementation
+// ==============================================
+
 std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
     if (_co_svs && coroutine_id > 0) {
         _co_svs->remove_coroutine(coroutine_id);
@@ -1016,7 +681,10 @@ std::vector<VariantType> xAwaiter::await_resume() {
     }
 }
 
-// -------------------- External interfaces --------------------
+// ==============================================
+// External interfaces
+// ==============================================
+
 bool coroutine_init() {
     if (_co_svs) return true;
     try {
@@ -1059,8 +727,26 @@ int coroutine_self_id() {
     return _co_cid;
 }
 
-bool coroutine_resume(uint32_t wait_id, std::vector<VariantType>&& resp) {
+bool coroutine_resume(uint32_t wait_id, std::vector<VariantType> && resp) {
     if (!_co_svs) return false;
     _co_svs->resume_waiter(wait_id, std::move(resp));
     return true;
+}
+
+void coroutine_set_stacktrace_mode(int mode) {
+    switch (mode) {
+    case 0:  // 自动检测
+        xtraceback_auto_detect();
+        break;
+    case 1:  // 强制简单模式
+        xtraceback_force_simple();
+        break;
+    case 2:  // 强制详细模式
+        xtraceback_force_detailed();
+        break;
+    default:
+        xlog_err("Invalid stack trace mode: %d, using auto detect", mode);
+        xtraceback_auto_detect();
+        break;
+    }
 }

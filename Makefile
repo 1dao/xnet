@@ -12,48 +12,133 @@ else
     CXX = clang++
 endif
 
-# C++编译标志 - 根据编译器类型调整协程标志
-CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -I .
+# 系统自动检测
+UNAME_S := $(shell uname -s)
+ARCH := $(shell uname -m)
+COMPILER := $(shell $(CXX) --version | head -n1)
 
-# 根据编译器类型设置协程标志
-ifneq ($(CXX),clang++)
-    # GCC的协程标志
-    CXXFLAGS += -fcoroutines -D__cpp_coroutines=201902L
+# 自动检测编译器版本
+CLANG_VERSION := $(shell $(CXX) --version 2>/dev/null | grep -i clang)
+GCC_VERSION := $(shell $(CXX) --version 2>/dev/null | grep -i gcc)
+
+# 自动识别编译器类型
+ifneq ($(CLANG_VERSION),)
+    IS_CLANG = 1
+    COMPILER_NAME = clang
+else ifneq ($(GCC_VERSION),)
+    IS_GCC = 1
+    COMPILER_NAME = gcc
 else
-    # Clang的协程标志
-    CXXFLAGS += -fcoroutines-ts -D__cpp_coroutines=201902L
+    COMPILER_NAME = unknown
 endif
 
-CFLAGS = -Wall -Wextra -I .
+# C 编译标志 - 通用
+CFLAGS = -Wall -Wextra -I . -g -fno-omit-frame-pointer
 
-# 添加必要的系统头文件路径和定义
-UNAME_S := $(shell uname -s)
+# C++编译标志
+CXXFLAGS = -Wall -Wunused-function -g -std=c++20 -I . -fno-omit-frame-pointer
+
+# 平台特定的定义和标志
 ifeq ($(UNAME_S),Linux)
-    CFLAGS += -D_GNU_SOURCE
-    CXXFLAGS += -D_GNU_SOURCE
+    # Linux 平台
+    CFLAGS += -D__linux__ -D_GNU_SOURCE
+    CXXFLAGS += -D__linux__ -D_GNU_SOURCE
+    PLATFORM = linux
+    # Linux 需要 rdynamic 支持 backtrace
+    ifeq ($(IS_CLANG),1)
+        # Clang on Linux 也支持 -rdynamic
+        CFLAGS += -rdynamic
+        CXXFLAGS += -rdynamic
+    else
+        # GCC on Linux
+        CFLAGS += -rdynamic
+        CXXFLAGS += -rdynamic
+    endif
+else ifeq ($(UNAME_S),Darwin)
+    # macOS 平台
+    CFLAGS += -D__APPLE__ -D_DARWIN_C_SOURCE -D_DARWIN_UNLIMITED_SELECT
+    CXXFLAGS += -D__APPLE__ -D_DARWIN_C_SOURCE -D_DARWIN_UNLIMITED_SELECT
+    PLATFORM = darwin
+    # macOS 不支持 -rdynamic，使用其他方式
+    ifeq ($(IS_CLANG),1)
+        # Clang on macOS
+        CFLAGS += -mmacosx-version-min=10.14
+        CXXFLAGS += -mmacosx-version-min=10.14
+    endif
+else ifeq ($(OS),Windows_NT)
+    # Windows 平台
+    CFLAGS += -D_WIN32 -D_WIN64
+    CXXFLAGS += -D_WIN32 -D_WIN64
+    PLATFORM = windows
+else
+    # 其他平台
+    CFLAGS += -DPLATFORM_UNKNOWN
+    CXXFLAGS += -DPLATFORM_UNKNOWN
+    PLATFORM = unknown
+endif
+
+# 自动设置协程标志
+ifeq ($(IS_CLANG),1)
+    # Clang 协程标志
+    CXXFLAGS += -fcoroutines-ts -D__cpp_coroutines=201902L
+    # Clang 可能需要 libc++ 支持
+    ifeq ($(UNAME_S),Darwin)
+        CXXFLAGS += -stdlib=libc++
+    endif
+else
+    # GCC 或其他编译器的协程标志
+    CXXFLAGS += -fcoroutines -D__cpp_coroutines=201902L
+endif
+
+# 根据架构优化
+ifeq ($(ARCH),x86_64)
+    CFLAGS += -m64
+    CXXFLAGS += -m64
+else ifeq ($(ARCH),arm64)
+    CFLAGS += -arch arm64
+    CXXFLAGS += -arch arm64
+    ifeq ($(UNAME_S),Darwin)
+        CFLAGS += -target arm64-apple-darwin
+        CXXFLAGS += -target arm64-apple-darwin
+    endif
 endif
 
 # 定义链接选项变量
 LDFLAGS =
 
-# 判断操作系统并设置相应的链接选项
-ifeq ($(OS),Windows_NT)
+# 自动设置链接选项
+ifeq ($(PLATFORM),windows)
     LDFLAGS += -lws2_32
     TARGET_EXT = .exe
 else
-    LDFLAGS += -lpthread
-    # 添加必要的系统库
-    LDFLAGS += -lm
-    # 检测系统类型并添加相应库
-    UNAME_S := $(shell uname -s)
-    ifeq ($(UNAME_S),Darwin)
-        # macOS平台需要链接execinfo库来支持backtrace功能
-        # LDFLAGS += -lexecinfo
+    LDFLAGS += -lpthread -lm
+    
+    # 根据平台自动设置链接选项
+    ifeq ($(PLATFORM),linux)
+        LDFLAGS += -ldl -rdynamic
+        # 如果是 Linux，可能需要实时扩展
+        ifneq ($(wildcard /usr/include/sys/eventfd.h),)
+            CFLAGS += -DHAVE_EVENTFD
+            CXXFLAGS += -DHAVE_EVENTFD
+        endif
+        ifneq ($(wildcard /usr/include/sys/epoll.h),)
+            CFLAGS += -DHAVE_EPOLL
+            CXXFLAGS += -DHAVE_EPOLL
+        endif
+    else ifeq ($(PLATFORM),darwin)
+        # macOS 链接选项
+        LDFLAGS += -undefined dynamic_lookup
+        # 如果是 Clang，使用 libc++
+        ifeq ($(IS_CLANG),1)
+            LDFLAGS += -lc++
+        endif
+        # 检测 macOS 特定功能
+        ifneq ($(wildcard /usr/include/sys/event.h),)
+            CFLAGS += -DHAVE_KQUEUE
+            CXXFLAGS += -DHAVE_KQUEUE
+        endif
     endif
-    ifeq ($(UNAME_S),Linux)
-        # Linux平台可能需要额外的库
-        LDFLAGS += -ldl
-    endif
+    
     TARGET_EXT =
 endif
 
@@ -86,6 +171,13 @@ all : $(TARGET_DIR)/svr$(TARGET_EXT) $(TARGET_DIR)/client$(TARGET_EXT) $(TARGET_
 
 # 创建必要的目录
 $(shell mkdir -p $(OBJS_DIR)/demo $(TARGET_DIR))
+
+# 显示构建环境信息
+$(info ========================================)
+$(info Building for: $(UNAME_S)-$(ARCH))
+$(info Platform: $(PLATFORM))
+$(info Compiler: $(COMPILER_NAME) ($(shell $(CXX) --version | head -n1)))
+$(info ========================================)
 
 # 服务器程序（使用 CXX 链接以确保C++运行时正确链接）
 $(TARGET_DIR)/svr$(TARGET_EXT) : $(OBJS) $(SVR_OBJS)
@@ -143,36 +235,84 @@ tree:
 
 # 调试信息目标
 debug:
-	@echo "Compiler: CC=$(CC), CXX=$(CXX)"
+	@echo "=== Build Configuration ==="
+	@echo "Platform: $(UNAME_S)-$(ARCH) [$(PLATFORM)]"
+	@echo "Compiler: $(shell $(CXX) --version | head -n1)"
+	@echo "Compiler Name: $(COMPILER_NAME)"
+	@echo "CFLAGS: $(CFLAGS)"
 	@echo "CXXFLAGS: $(CXXFLAGS)"
+	@echo "LDFLAGS: $(LDFLAGS)"
 	@echo "C_SRCS: $(C_SRCS)"
 	@echo "CPP_SRCS: $(CPP_SRCS)"
-	@echo "C_OBJS: $(C_OBJS)"
-	@echo "CPP_OBJS: $(CPP_OBJS)"
-	@echo "UNAME_S: $(UNAME_S)"
+	@echo "Is Clang: $(if $(IS_CLANG),Yes,No)"
+	@echo "Is GCC: $(if $(IS_GCC),Yes,No)"
 
-# 强制使用gcc/g++的目标
-use-gcc:
-	$(eval CC = gcc)
-	$(eval CXX = g++)
-	$(eval CXXFLAGS := $(filter-out -fcoroutines-ts,$(CXXFLAGS)))
-	$(eval CXXFLAGS += -fcoroutines -D__cpp_coroutines=201902L)
-	@echo "Forced using gcc/g++"
-
-# 强制使用clang/clang++的目标
-use-clang:
-	$(eval CC = clang)
-	$(eval CXX = clang++)
-	$(eval CXXFLAGS := $(filter-out -fcoroutines,$(CXXFLAGS)))
-	$(eval CXXFLAGS += -fcoroutines-ts -D__cpp_coroutines=201902L)
-	@echo "Forced using clang/clang++"
-
-# 安装依赖（示例，根据实际需要调整）
-install-deps:
-ifeq ($(UNAME_S),Linux)
-	@echo "Installing build dependencies..."
-	# 添加实际的包安装命令，例如：
-	# sudo apt-get install build-essential clang
+# 自动检测并修复编译环境
+auto-setup:
+ifeq ($(UNAME_S),Darwin)
+	@echo "Setting up for macOS..."
+	@if ! command -v xcode-select >/dev/null 2>&1; then \
+		echo "Installing Xcode Command Line Tools..."; \
+		xcode-select --install; \
+	fi
+	@if ! command -v brew >/dev/null 2>&1; then \
+		echo "Homebrew not found. Consider installing it for package management."; \
+	fi
+else ifeq ($(UNAME_S),Linux)
+	@echo "Setting up for Linux..."
+	@if ! command -v apt-get >/dev/null 2>&1 && command -v yum >/dev/null 2>&1; then \
+		echo "Detected yum-based system"; \
+	elif command -v apt-get >/dev/null 2>&1; then \
+		echo "Detected apt-based system"; \
+	fi
 endif
 
-.PHONY: all clean cli svr tree debug install-deps use-gcc use-clang
+# 平台测试
+platform-test:
+	@echo "Running platform tests..."
+	@echo "1. Testing architecture support..."
+	@$(CC) -dM -E - < /dev/null | grep -i arch || echo "No architecture info"
+	@echo "2. Testing system headers..."
+	@$(CC) -xc - -o /dev/null 2>/dev/null <<<'#include <stdio.h>\nint main(){return 0;}' && echo "  - stdio.h: OK" || echo "  - stdio.h: FAILED"
+	@echo "3. Testing C++20 support..."
+	@$(CXX) -xc++ -std=c++20 - -o /dev/null 2>/dev/null <<<'int main(){return 0;}' && echo "  - C++20: OK" || echo "  - C++20: FAILED"
+
+# 环境检查
+env-check:
+	@echo "=== Environment Check ==="
+	@echo "OS: $(UNAME_S)"
+	@echo "Architecture: $(ARCH)"
+	@echo "Compiler: $(shell which $(CXX))"
+	@echo "C Compiler: $(shell which $(CC))"
+	@echo "Make version: $(shell make --version | head -n1)"
+	@echo "Available memory: $(shell free -h 2>/dev/null | awk '/^Mem:/{print $2}' || sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1024/1024)"MB"}')"
+
+# 构建所有平台配置
+build-all: clean
+	@echo "Building with current configuration..."
+	@make
+	@echo ""
+	@echo "To build with different configurations, use:"
+	@echo "  make use-gcc   # Force use GCC"
+	@echo "  make use-clang # Force use Clang"
+
+# 为 C 文件添加特定警告抑制规则（针对跨平台问题）
+$(OBJS_DIR)/ae.o: CFLAGS += -Wno-void-pointer-to-int-cast -Wno-unused-parameter -Wno-conditional-type-mismatch
+$(OBJS_DIR)/anet.o: CFLAGS += -Wno-unused-parameter
+
+# 平台特定的修复规则
+# 修复指针转换问题
+FIX_POINTER_CONVERSION = sed -i.bak 's/(int)clientData/(int)(intptr_t)clientData/g' ae.c && \
+                         sed -i.bak 's/clientData?clientData:fd/clientData ? clientData : (void*)(intptr_t)fd/g' ae.c
+
+fix-pointer-conversion:
+	@if [ -f ae.c ]; then \
+		echo "Fixing pointer conversions in ae.c..."; \
+		$(FIX_POINTER_CONVERSION); \
+		rm -f ae.c.bak; \
+		echo "Fixed."; \
+	else \
+		echo "ae.c not found."; \
+	fi
+
+.PHONY: all clean cli svr tree debug auto-setup platform-test env-check build-all fix-pointer-conversion

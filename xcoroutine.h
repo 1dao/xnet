@@ -44,7 +44,7 @@ void coroutine_uninit();
 int coroutine_run(fnCoro func, void* arg);
 
 // 协程等待
-void coroutine_sleep(int coroutine_id, int );
+void coroutine_sleep(int coroutine_id, int);
 
 // 恢复协程
 bool coroutine_resume(int coroutine_id, void* param);
@@ -55,13 +55,14 @@ void coroutine_resume_all();
 bool coroutine_is_done(int coroutine_id);
 size_t coroutine_get_active_count();
 int coroutine_self_id();
+void coroutine_set_stacktrace_mode(int mode);
 
 // Hardware exception protection structure
 struct xCoroutineLJ {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     jmp_buf buf;
 #else
-    sigjmp_buf buf;  // Linux下使用sigjmp_buf
+    sigjmp_buf buf;         // Linux下使用sigjmp_buf
 #endif
     void* env;
     int sig;
@@ -160,14 +161,14 @@ struct xCoroTask {
         // 获取硬件异常信息
         std::string get_hardware_exception_message() const {
             switch (hardware_signal) {
-#ifndef _WIN32
+#if defined(__APPLE__) || defined(__LINUX__)
             case SIGSEGV: return "Segmentation fault (memory access violation)";
             case SIGFPE:  return "Floating point exception (division by zero)";
             case SIGILL:  return "Illegal instruction";
             case SIGABRT: return "Abort signal";
             case SIGBUS:  return "Bus error";
             case SIGTRAP: return "Trace/breakpoint trap";
-#else
+#elif defined(_WIN32) || defined(_WIN64)
             case EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
             case EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
             case EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
