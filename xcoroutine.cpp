@@ -34,9 +34,7 @@ static void coroutine_signal_handler(int sig, siginfo_t* info, void* context) {
     // 协程保护上下文中的硬件异常
     if (_cur_lj && _cur_lj->in_protected_call) {
         _cur_lj->sig = sig;
-        // 保存异常发生时的上下文
-        _cur_lj->ucontext = (ucontext_t*)context;
-
+        
         // 记录详细的信号和地址信息
         xlog_err("=== HARDWARE EXCEPTION DETECTED ===");
 
