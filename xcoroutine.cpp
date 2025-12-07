@@ -352,6 +352,11 @@ public:
             _co_cid = coroutine_id;
             bool success = task.resume_safe(param, &lj);
             _co_cid = -1;
+            
+            if (_co_svs->coroutine_map_.find(coroutine_id) == _co_svs->coroutine_map_.end()) {
+                xlog_debug("Coroutine %d has been removed from coroutine map", coroutine_id);
+                return true;// 以及执行到尾部，则说明已经执行完毕且无异常
+            }
 
             // 检查并处理任何类型的异常
             if (task.has_any_exception()) {
@@ -440,7 +445,7 @@ public:
         XMutexGuard guard(&map_mutex);
         coroutine_map_[coro_id] = std::make_unique<xCoro>(std::move(task), coro_id);
         return coro_id;
-        }
+    }
 
     bool resume_coroutine(int id, void* param) {
         xCoro* coro = find_coroutine_by_id(id);
@@ -448,6 +453,8 @@ public:
 
         if (!coro->is_done()) {
             bool success = coro->resume_safe(param);
+            coro = find_coroutine_by_id(id); // 重新获取-防止resume后被删除
+            if (!coro) return success;
             if (coro->is_done() || !success) {
                 remove_coroutine(id);
             }

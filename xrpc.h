@@ -54,6 +54,29 @@ xAwaiter xrpc_pcall(xChannel* s, uint16_t protocol, Args&&... args) {
         return awaiter;
 }
 
+// 函数声明 - POST 模式
+template<typename... Args>
+NetworkError xchannel_post(xChannel* s, uint16_t protocol, Args&&... args) {
+    uint16_t is_rpc = 0;
+    XPackBuff packed = xpack_pack(true, std::forward<Args>(args)...);
+
+    int remain = (int)s->wlen - (int)(s->wpos - s->wbuf);
+    int hlen = (int)_xchannel_header_size(s);
+    int plen = packed.len + sizeof(is_rpc) + sizeof(protocol);
+    if (remain < hlen + plen)
+        return XNET_BUFF_LIMIT;
+    _xchannel_write_header(s, plen);
+
+    // 写RPC头
+    *(uint16_t*)s->wpos = htons(is_rpc);
+    s->wpos += sizeof(is_rpc);
+    *(uint16_t*)s->wpos = htons(protocol);
+    s->wpos += sizeof(protocol);
+
+    xchannel_rawsend(s, packed.get(), packed.len);
+    return XNET_SUCCESS;
+}
+
 // 检查 RPC 结果的辅助宏/函数
 #define XRPC_CHECK_RETURN(result, msg) \
     do { \
