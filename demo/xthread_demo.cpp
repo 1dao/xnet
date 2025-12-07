@@ -156,25 +156,20 @@ xCoroTask comprehensive_exception_test(void* arg) {
             break;
 
         case 5:  // 栈溢出（相对安全的测试）--协程不能使用alloca
-            // xlog_info("=== Testing stack overflow ===");
-            // {
-            //     // 使用足够大的栈分配来触发栈溢出
-            //     // Windows默认栈大小通常是1MB，我们分配更多来确保溢出
-            //     const size_t stack_size = 2 * 1024 * 1024;  // 2MB
-            //     char* huge_buffer = (char*)alloca(stack_size);
-
-            //     if (huge_buffer) {
-            //         memset(huge_buffer, 0, stack_size);
-            //         xlog_info("Stack allocation completed, buffer size: %zu", stack_size);
-            //     } else {
-            //         xlog_info("Stack allocation failed (this is expected for stack overflow)");
-            //     }
-            // }
-            // break;
             xlog_info("=== Testing stack overflow ===");
             {
-                // 直接尝试分配远超栈大小的数组
+            #if !defined(__APPLE__)
+                // 只在非macOS平台测试栈溢出
                 const size_t stack_breaker = 64 * 1024 * 1024;  // 64MB - 远超任何合理栈大小
+            #else
+                // macOS上使用更安全的替代测试
+                xlog_info("Stack overflow test disabled on macOS");
+                xlog_info("(macOS has stricter stack protection)");
+
+                // 替代测试：安全的栈使用
+                const size_t stack_breaker = 1 * 1024 * 1024;  // 64MB - 远超任何合理栈大小
+            #endif
+                // 直接尝试分配远超栈大小的数组
                 char stack_killer[stack_breaker];
 
                 // 强制使用这个数组
