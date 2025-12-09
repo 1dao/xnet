@@ -128,8 +128,6 @@
   <ItemGroup>
     <ClCompile Include="ae.c" />
     <ClCompile Include="xchannel.cpp" />
-    <ClCompile Include="ae_iocp.c" />
-    <ClCompile Include="ae_ws2.c" />
     <ClCompile Include="anet.c">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Default</CompileAs>
     </ClCompile>
@@ -139,6 +137,7 @@
     <ClCompile Include="xrpc.cpp" />
     <ClCompile Include="xlog.c" />
     <ClCompile Include="xthread.cpp" />
+    <ClCompile Include="xtimer.c" />
     <ClCompile Include="zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
@@ -149,11 +148,13 @@
     <ClInclude Include="fmacros.h" />
     <ClInclude Include="xerrno.h" />
     <ClInclude Include="xhandle.h" />
+    <ClInclude Include="xheapmin.h" />
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xpack.h" />
     <ClInclude Include="xrpc.h" />
     <ClInclude Include="xthread.h" />
+    <ClInclude Include="xtimer.h" />
     <ClInclude Include="zmalloc.h" />
   </ItemGroup>
   <ItemGroup>

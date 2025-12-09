@@ -1,4 +1,4 @@
-CC = gcc
+﻿CC = gcc
 CXX = g++
 
 # 检测是否安装了clang++
@@ -147,7 +147,7 @@ BUILD_DIR = build
 OBJS_DIR = $(BUILD_DIR)/objs
 
 # 源文件 - 将C和C++文件分开
-C_SRCS = ae.c anet.c zmalloc.c xlog.c
+C_SRCS = ae.c anet.c zmalloc.c xlog.c xtimer.c
 CPP_SRCS = xchannel.cpp xcoroutine.cpp xrpc.cpp xthread.cpp xchannel_pdu.cpp xhandle.cpp
 SVR_SRCS = demo/xthread_demo.cpp
 CLI_SRCS = demo/xrpc_client.cpp

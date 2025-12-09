@@ -36,37 +36,37 @@
 #include <stdlib.h>
 #include <string.h>
 #ifndef _WIN32
-#include <sys/time.h>
-#include <unistd.h>
-#include <time.h>
-#include <search.h>
-#include <sys/socket.h>  // For AF_UNIX, SOCK_STREAM
-#include <fcntl.h>       // For fcntl, F_SETFL, O_NONBLOCK
+    #include <sys/time.h>
+    #include <unistd.h>
+    #include <time.h>
+    #include <search.h>
+    #include <sys/socket.h>  // For AF_UNIX, SOCK_STREAM
+    #include <fcntl.h>       // For fcntl, F_SETFL, O_NONBLOCK
 #else
     #include <corecrt_search.h>
 #endif
 #include "ae.h"
 #include "zmalloc.h"
 
-/* Include the best multiplexing layer supported by this system.
- * The following should be ordered by performances, descending. */
-#ifdef HAVE_EPOLL
-	#include "ae_epoll.c"
-#else
-	#ifdef HAVE_KQUEUE
-	    #include "ae_kqueue.c"
-	#else
-	    #ifdef _WIN32
-            #ifdef HAVE_IOCP
-                #include "ae_iocp.c"
-            #else
-                #include "ae_ws2.c"
-            #endif
-	    #else
-		    #include "ae_select.c"
-	    #endif
-	#endif
-#endif
+///* Include the best multiplexing layer supported by this system.
+// * The following should be ordered by performances, descending. */
+//#ifdef HAVE_EPOLL
+//	#include "ae_epoll.c"
+//#else
+//	#ifdef HAVE_KQUEUE
+//	    #include "ae_kqueue.c"
+//	#else
+//	    #ifdef _WIN32
+//            #ifdef HAVE_IOCP
+//                #include "ae_iocp.c"
+//            #else
+//                #include "ae_ws2.c"
+//            #endif
+//	    #else
+//		    #include "ae_select.c"
+//	    #endif
+//	#endif
+//#endif
 
 /* main aeEventLoop */
 #ifdef _WIN32
@@ -75,14 +75,15 @@ static _declspec(thread) aeEventLoop* _net_ae = NULL;
 static __thread aeEventLoop* _net_ae = NULL;
 #endif
 
-#ifndef HAVE_IOCP
-static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
-    char buf[64];
-    // 读取信号数据，避免fd一直处于可读状态
-    while (read((int)clientData, buf, sizeof(buf)) > 0);
-    return AE_OK;
-}
-#endif
+// 向前声明
+static int aeApiCreate(aeEventLoop* eventLoop);
+static void aeApiFree(aeEventLoop* eventLoop);
+static int aeApiResize(aeEventLoop* eventLoop, int setsize);
+static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp);
+static int aeApiAddEvent(aeEventLoop* eventLoop, xSocket fd, int mask, aeFileEvent* fe);
+static void aeApiDelEvent(aeEventLoop* eventLoop, xSocket fd, int mask);
+static xSocket aeApiGetStateFD(aeEventLoop* eventLoop);
+static char* aeApiName(void);
 
 #define INITIAL_EVENT 1024
 aeEventLoop *aeCreateEventLoop(int setsize) {
@@ -219,7 +220,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     eventLoop->efhead = fe->slot;
     if(ev)
         *ev = fe;
-    
+
     if (aeApiAddEvent(eventLoop, fd, mask, fe) == -1){
         return AE_ERR;
     }
@@ -543,10 +544,17 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
     eventLoop->beforesleep = beforesleep;
 }
 
+#ifndef HAVE_IOCP
+static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
+    char buf[64];
+    // 读取信号数据，避免fd一直处于可读状态
+    while (read((int)clientData, buf, sizeof(buf)) > 0);
+    return AE_OK;
+}
+#endif
 
 void aeCreateSignalFile(aeEventLoop* eventLoop) {
     eventLoop->fdWaitSlot = eventLoop->efhead;
-
 #ifndef HAVE_IOCP
     if (eventLoop->signal_fd[0] != 0) return;
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, eventLoop->signal_fd) == 0) {
@@ -577,6 +585,477 @@ void aeGetSignalFile(aeEventLoop *eventLoop, xSocket* fdSignal){
 #ifndef HAVE_IOCP
     *fdSignal = eventLoop->signal_fd[0];
 #else
-    *fdSignal = aeGetStateFD(eventLoop);
+    *fdSignal = aeApiGetStateFD(eventLoop);
 #endif
 }
+
+
+// all ae implementation
+//
+#ifdef HAVE_IOCP
+// ae_iocp.c
+#include <string.h>
+#include <winsock2.h>
+#include <windows.h>
+#include <mswsock.h>
+#include <io.h>
+#include <stdio.h>
+#include "ae.h"
+#include "zmalloc.h"
+
+typedef struct aeApiState {
+    HANDLE iocp;                    // IOCP句柄
+    int eventCount;                 // 当前事件数量
+} aeApiState;
+
+static int aeApiCreate(aeEventLoop* eventLoop) {
+    aeApiState* state = zmalloc(sizeof(aeApiState));
+    if (!state) return -1;
+
+    state->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+    if (state->iocp == NULL) {
+        zfree(state);
+        return -1;
+    }
+
+    state->eventCount = 0;
+    eventLoop->apidata = state;
+    return 0;
+}
+
+static int aeApiResize(aeEventLoop* eventLoop, int setsize) {
+    (void)(eventLoop);
+    (void)(setsize);
+    return 0;
+}
+
+static void aeApiFree(aeEventLoop* eventLoop) {
+    aeApiState* state = eventLoop->apidata;
+
+    if (state) {
+        if (state->iocp) {
+            CloseHandle(state->iocp);
+        }
+        zfree(state);
+    }
+}
+
+static int aeApiAddEvent(aeEventLoop* eventLoop, xSocket fd, int mask, aeFileEvent* fe) {
+    aeApiState* state = eventLoop->apidata; // -1 for signal notify
+    if ((int)fd != -1 && CreateIoCompletionPort((HANDLE)fd, state->iocp, (ULONG_PTR)fe, 0) == NULL) {
+        return -1;
+    }
+    state->eventCount++;
+    return 0;
+}
+
+static void aeApiDelEvent(aeEventLoop* eventLoop, xSocket fd, int mask) {
+    aeApiState* state = eventLoop->apidata;
+    state->eventCount--;
+}
+
+static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
+    aeApiState* state = eventLoop->apidata;
+    DWORD timeout = tvp ? (tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : INFINITE;
+    int numevents = 0;
+
+    if (state->eventCount == 0 && state) {
+        Sleep(timeout);
+        return 0;
+    }
+
+    DWORD bytesTransferred = 0;
+    ULONG_PTR completionKey = 0;
+    LPOVERLAPPED overlapped = NULL;
+
+    // 获取完成状态
+    BOOL result = GetQueuedCompletionStatus(
+        state->iocp,
+        &bytesTransferred,
+        &completionKey,
+        &overlapped,
+        timeout
+    );
+
+    if (result && overlapped != NULL) {
+        int mask = *((int*)((char*)overlapped + sizeof(OVERLAPPED)));
+        if (mask != 0) {
+            eventLoop->fired[numevents].fd = -1;
+            eventLoop->fired[numevents].mask = mask;
+            eventLoop->fired[numevents].fe = (aeFileEvent*)completionKey;
+            eventLoop->fired[numevents].trans = bytesTransferred;
+            numevents++;
+
+            printf("Queued event: mask=%d, trans=%d\n", mask, (int)bytesTransferred);
+        }
+    }
+    else if (!result && overlapped != NULL) {
+        int error = GetLastError();
+        printf("GetQueuedCompletionStatus failed: error=%d\n", error);
+
+        int mask = *((int*)((char*)overlapped + sizeof(OVERLAPPED)));
+        if (mask != 0) {
+            eventLoop->fired[numevents].fd = -1;
+            eventLoop->fired[numevents].mask = mask;
+            eventLoop->fired[numevents].fe = (aeFileEvent*)completionKey;
+            eventLoop->fired[numevents].trans = 0; // 传输失败
+            numevents++;
+        }
+    }
+
+    return numevents;
+}
+
+static xSocket aeApiGetStateFD(aeEventLoop* eventLoop) {
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    return (xSocket)state->iocp;
+}
+
+static char* aeApiName(void) {
+    return "iocp";
+}
+#elif defined(HAVE_KQUEUE)
+/* Kqueue(2)-based ae.c module
+ *
+ * Copyright (C) 2009 Harish Mallipeddi - harish.mallipeddi@gmail.com
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/time.h>
+
+#include <errno.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
+__attribute__((noreturn))
+void panic(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "PANIC: ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+    exit(EXIT_FAILURE);
+}
+
+typedef struct aeApiState {
+    int kqfd;
+    struct kevent* events;
+
+    /* Events mask for merge read and write event.
+     * To reduce memory consumption, we use 2 bits to store the mask
+     * of an event, so that 1 byte will store the mask of 4 events. */
+    char* eventsMask;
+} aeApiState;
+
+#define EVENT_MASK_MALLOC_SIZE(sz) (((sz) + 3) / 4)
+#define EVENT_MASK_OFFSET(fd) ((fd) % 4 * 2)
+#define EVENT_MASK_ENCODE(fd, mask) (((mask) & 0x3) << EVENT_MASK_OFFSET(fd))
+
+static inline int getEventMask(const char* eventsMask, int fd) {
+    return (eventsMask[fd / 4] >> EVENT_MASK_OFFSET(fd)) & 0x3;
+}
+
+static inline void addEventMask(char* eventsMask, int fd, int mask) {
+    eventsMask[fd / 4] |= EVENT_MASK_ENCODE(fd, mask);
+}
+
+static inline void resetEventMask(char* eventsMask, int fd) {
+    eventsMask[fd / 4] &= ~EVENT_MASK_ENCODE(fd, 0x3);
+}
+
+static int aeApiCreate(aeEventLoop* eventLoop) {
+    aeApiState* state = zmalloc(sizeof(aeApiState));
+
+    if (!state) return -1;
+    state->events = zmalloc(sizeof(struct kevent) * eventLoop->setsize);
+    if (!state->events) {
+        zfree(state);
+        return -1;
+    }
+    state->kqfd = kqueue();
+    if (state->kqfd == -1) {
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
+    //anetCloexec(state->kqfd);
+    state->eventsMask = zmalloc(EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
+    memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
+    eventLoop->apidata = state;
+    return 0;
+}
+
+static int aeApiResize(aeEventLoop* eventLoop, int setsize) {
+    aeApiState* state = eventLoop->apidata;
+
+    state->events = zrealloc(state->events, sizeof(struct kevent) * setsize);
+    state->eventsMask = zrealloc(state->eventsMask, EVENT_MASK_MALLOC_SIZE(setsize));
+    memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(setsize));
+    return 0;
+}
+
+static void aeApiFree(aeEventLoop* eventLoop) {
+    aeApiState* state = eventLoop->apidata;
+
+    close(state->kqfd);
+    zfree(state->events);
+    zfree(state->eventsMask);
+    zfree(state);
+}
+
+static int aeApiAddEvent(aeEventLoop* eventLoop, int fd, int mask, aeFileEvent* fe) {
+    aeApiState* state = eventLoop->apidata;
+    struct kevent ke;
+
+    if (mask & AE_READABLE) {
+        EV_SET(&ke, fd, EVFILT_READ, EV_ADD, 0, 0, (void*)fe);
+        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
+    }
+    if (mask & AE_WRITABLE) {
+        EV_SET(&ke, fd, EVFILT_WRITE, EV_ADD, 0, 0, (void*)fe);
+        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
+    }
+    return 0;
+}
+
+static void aeApiDelEvent(aeEventLoop* eventLoop, int fd, int mask) {
+    aeApiState* state = eventLoop->apidata;
+    struct kevent ke;
+
+    if (mask & AE_READABLE) {
+        EV_SET(&ke, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
+    }
+    if (mask & AE_WRITABLE) {
+        EV_SET(&ke, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
+    }
+}
+
+static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
+    aeApiState* state = eventLoop->apidata;
+    int retval, numevents = 0;
+
+    if (tvp != NULL) {
+        struct timespec timeout;
+        timeout.tv_sec = tvp->tv_sec;
+        timeout.tv_nsec = tvp->tv_usec * 1000;
+        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
+            &timeout);
+    }
+    else {
+        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
+            NULL);
+    }
+
+    if (retval > 0) {
+        int j;
+
+        /* Normally we execute the read event first and then the write event.
+         * When the barrier is set, we will do it reverse.
+         *
+         * However, under kqueue, read and write events would be separate
+         * events, which would make it impossible to control the order of
+         * reads and writes. So we store the event's mask we've got and merge
+         * the same fd events later. */
+        for (j = 0; j < retval; j++) {
+            struct kevent* e = state->events + j;
+            int fd = e->ident;
+            int mask = 0;
+
+            if (e->filter == EVFILT_READ) mask = AE_READABLE;
+            else if (e->filter == EVFILT_WRITE) mask = AE_WRITABLE;
+            addEventMask(state->eventsMask, fd, mask);
+        }
+
+        /* Re-traversal to merge read and write events, and set the fd's mask to
+         * 0 so that events are not added again when the fd is encountered again. */
+        numevents = 0;
+        for (j = 0; j < retval; j++) {
+            struct kevent* e = state->events + j;
+            int fd = e->ident;
+            int mask = getEventMask(state->eventsMask, fd);
+            if (mask) {
+                eventLoop->fired[numevents].fd = fd;
+                eventLoop->fired[numevents].mask = mask;
+                eventLoop->fired[numevents].trans = (int)e->data;
+                eventLoop->fired[numevents].fe = (aeFileEvent*)e->udata;
+                resetEventMask(state->eventsMask, fd);
+                numevents++;
+            }
+        }
+    }
+    else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: kevent, %s", strerror(errno));
+    }
+
+    return numevents;
+}
+
+static char* aeApiName(void) {
+    return "kqueue";
+}
+#elif defined(HAVE_EPOLL)
+/* Linux epoll(2) based ae.c module
+* Copyright (C) 2009-2010 Salvatore Sanfilippo - antirez@gmail.com
+* Released under the BSD license. See the COPYING file for more info. */
+
+#include <sys/epoll.h>
+#include <errno.h>
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+__attribute__((noreturn))
+void panic(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "PANIC: ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+    exit(EXIT_FAILURE);
+}
+
+typedef struct aeApiState {
+    int epfd;
+    struct epoll_event* events;
+} aeApiState;
+
+static int aeApiCreate(aeEventLoop* eventLoop) {
+    aeApiState* state = zmalloc(sizeof(aeApiState));
+    if (!state) return -1;
+    state->events = zmalloc(sizeof(struct epoll_event) * eventLoop->setsize);
+    if (!state->events) {
+        zfree(state);
+        return -1;
+    }
+
+    state->epfd = epoll_create(1024); /* 1024 is just an hint for the kernel */
+    if (state->epfd == -1) {
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
+    eventLoop->apidata = state;
+    return 0;
+}
+
+static int aeApiResize(aeEventLoop* eventLoop, int setsize) {
+    aeApiState* state = eventLoop->apidata;
+
+    state->events = zrealloc(state->events, sizeof(struct epoll_event) * setsize);
+    return 0;
+}
+
+static void aeApiFree(aeEventLoop* eventLoop) {
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    close(state->epfd);
+    zfree(state->events);
+    zfree(state);
+}
+
+static int aeApiAddEvent(aeEventLoop* eventLoop, int fd, int mask, aeFileEvent* fe) {
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    struct epoll_event ee = { 0 };
+    /* If the fd was already monitored for some event, we need a MOD
+     * operation. Otherwise we need an ADD operation. */
+    int op = fe->mask == AE_NONE ?
+        EPOLL_CTL_ADD : EPOLL_CTL_MOD;
+
+    ee.events = 0;
+    mask |= fe->mask; /* Merge old events */
+    if (mask & AE_READABLE) ee.events |= EPOLLIN;
+    if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
+    ee.data.ptr = fe;
+    if (epoll_ctl(state->epfd, op, fd, &ee) == -1) return -1;
+    return 0;
+}
+
+static void aeApiDelEvent(aeEventLoop* eventLoop, int fd, int delmask) {
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    struct epoll_event ee;
+    int mask = eventLoop->events[fd].mask & (~delmask);
+
+    ee.events = 0;
+    if (mask & AE_READABLE) ee.events |= EPOLLIN;
+    if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
+    ee.data.u64 = 0; /* avoid valgrind warning */
+    ee.data.fd = fd;
+    if (mask != AE_NONE) {
+        epoll_ctl(state->epfd, EPOLL_CTL_MOD, fd, &ee);
+    }
+    else {
+        /* Note, Kernel < 2.6.9 requires a non null event pointer even for
+         * EPOLL_CTL_DEL. */
+        epoll_ctl(state->epfd, EPOLL_CTL_DEL, fd, &ee);
+    }
+}
+
+static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    int retval, numevents = 0;
+
+    retval = epoll_wait(state->epfd, state->events, eventLoop->setsize,
+        tvp ? (tvp->tv_sec * 1000 + tvp->tv_usec / 1000) : -1);
+    if (retval > 0) {
+        int j;
+
+        numevents = retval;
+        for (j = 0; j < numevents; j++) {
+            int mask = 0;
+            struct epoll_event* e = state->events + j;
+
+            if (e->events & EPOLLIN) mask |= AE_READABLE;
+            if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
+            eventLoop->fired[j].fd = e->data.fd;
+            eventLoop->fired[j].mask = mask;
+            eventLoop->fired[j].fe = (aeFileEvent*)e->data.ptr;
+        }
+    }
+    else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: epoll_wait, %s", strerror(errno));
+    }
+    return numevents;
+}
+
+static xSocket aeApiGetStateFD(aeEventLoop* eventLoop) {
+    aeApiState* state = (aeApiState*)eventLoop->apidata;
+    return (xSocket)state->epfd;
+}
+
+static char* aeApiName(void) {
+    return (char*)"epoll";
+}
+#else
+#error "Your operating system does not support any of the event loops available."
+#endif
