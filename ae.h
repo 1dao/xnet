@@ -91,7 +91,6 @@ typedef struct aeEventLoop {
     aeFiredEvent* fired;                /* Fired events */
 
     int         efhead;                 /* freehead */
-    int         nrpc;
 
     int stop;
     void *apidata;                      /* This is used for polling API specific data */

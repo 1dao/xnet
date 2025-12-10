@@ -265,6 +265,17 @@ xCoroTask test_coroutine_with_ae(void* arg) {
         xlog_info_tag("[Coroutine]", "Concurrent Compute 2: %d", sum);
     }
 
+    {
+        auto result = co_await xthread_pcall(XTHR_WORKER_GRP1, compute_task, 200, 300);
+        if (xthread_ok(result)) {
+            std::string status = pack_to_str(result[1]);
+            int sum = xpack_cast<int>(result4[1]);
+            xlog_info_tag("[xThread]", "Group Thread Compute 2: %d", sum);
+        } else {
+            xlog_err_tag("[xThread]", "Group Thread Compute 2 failed: %d", xthread_retcode(result));
+        }
+    }
+
     xlog_info_tag("[Coroutine]", "All operations completed with built-in signal notification");
     co_return;
 }
@@ -345,7 +356,47 @@ int main() {
         xthread_set_notify((void*)(intptr_t)fd);
     }
     xlog_info("All threads started with built-in signal notification");
+    {
+        // 注册线程组（4个IO线程，使用最少队列策略）
+        xthread_register_group(XTHR_WORKER_GRP1, 4, XTHSTRATEGY_LEAST_QUEUE, true, "IO_Worker",
+            [](xThread* ctx) {
+                aeEventLoop* el = aeCreateEventLoop(50);
+                // Store event loop in userdata
+                ctx->userdata = el;
 
+                // Get signal fd for notification and set it in thread context
+                xSocket fd = -1;
+                aeCreateSignalFile(el);
+                aeGetSignalFile(el, &fd);
+                xthread_set_notify((void*)(intptr_t)fd); // attach signal fd
+                xtimer_init(100);
+            },
+            [](xThread* ctx) {
+                aeEventLoop* el = (aeEventLoop*)ctx->userdata;
+                if (el) {
+                    // Process events with short timeout to allow thread to exit
+                    aeProcessEvents(el, _loop_flag);
+                }
+            },
+            [](xThread* ctx) {
+                aeEventLoop* el = (aeEventLoop*)ctx->userdata;
+                if (el) {
+                    aeDeleteEventLoop(el);
+                    ctx->userdata = nullptr;
+                }
+                xtimer_uninit();
+            });
+
+        // 使用
+        xthread_post(XTHR_WORKER_GRP1, [](xThread* ctx, std::vector<VariantType>& args) {
+            // 这个任务会自动分配到组内队列最短的线程
+            std::vector<VariantType> result;
+            result.reserve(2);
+            result.emplace_back(0);  // 第一个元素是返回码
+            result.emplace_back(str_to_pack("success"));  // 使用辅助函数构造 XPackBuff
+            return result;
+            });
+    }
     // Give threads time to initialize their event loops
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 

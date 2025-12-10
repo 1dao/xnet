@@ -14,23 +14,24 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <stdlib.h> // for rand()
 #endif
 
 // ============================================================================
 // 全局状态
 // ============================================================================
 
-static xThread*         _threads[XTHR_MAX] = {nullptr};
-static xMutex           _lock;
-static bool             _init = false;
+static xThread*             _threads[XTHR_MAX] = {nullptr};
+static xMutex               _lock;
+static bool                 _init = false;
 
 #ifdef _WIN32
-static DWORD            _tls = TLS_OUT_OF_INDEXES;
-#define XTHR_COMPLETION_KEY ((ULONG_PTR)-1)
+    static DWORD            _tls = TLS_OUT_OF_INDEXES;
+    #define XTHR_COMPLETION_KEY ((ULONG_PTR)-1)
 #else
-static pthread_key_t    _tls;
-static pthread_once_t   _tls_once = PTHREAD_ONCE_INIT;
-static void tls_init_once() { pthread_key_create(&_tls, nullptr); }
+    static pthread_key_t    _tls;
+    static pthread_once_t   _tls_once = PTHREAD_ONCE_INIT;
+    static void tls_init_once() { pthread_key_create(&_tls, nullptr); }
 #endif
 
 // ============================================================================
@@ -59,14 +60,14 @@ static int tls_get() {
 
 xThread::xThread(bool xwait_)
     : id(0), name(nullptr), running(false), queue(xwait_), userdata(nullptr),
-    handle(0), on_init(nullptr), on_update(nullptr), on_cleanup(nullptr) {
+      group(nullptr), handle(0), on_init(nullptr), on_update(nullptr), on_cleanup(nullptr) {
 }
 
 // ============================================================================
 // xthrQueue
 // ============================================================================
 
-xthrQueue::xthrQueue(bool xwait_) : pending_(0),xwait_(xwait_)  {
+xthrQueue::xthrQueue(bool xwait_) : pending_(0), xwait_(xwait_) {
 #ifdef _WIN32
     iocp_ = nullptr;
 #else
@@ -83,13 +84,13 @@ bool xthrQueue::init() {
     pending_ = 0;
     if (!xwait_) {
 #ifdef _WIN32
-    iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1);
-    return iocp_ != nullptr;
+        iocp_ = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1);
+        return iocp_ != nullptr;
 #else
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds_) != 0) return false;
-    fcntl(fds_[0], F_SETFL, O_NONBLOCK);
-    fcntl(fds_[1], F_SETFL, O_NONBLOCK);
-    return true;
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds_) != 0) return false;
+        fcntl(fds_[0], F_SETFL, O_NONBLOCK);
+        fcntl(fds_[1], F_SETFL, O_NONBLOCK);
+        return true;
 #endif
     } else {
 #ifdef _WIN32
@@ -114,33 +115,40 @@ void xthrQueue::uninit() {
     xnet_mutex_uninit(&lock_);
 }
 
-bool xthrQueue::push(xthrTask&& task) {
+bool xthrQueue::push(xthrTask&& task, int* out_new_size) {
     xnet_mutex_lock(&lock_);
     queue_.push(std::move(task));
-    bool need_notify = true; //!pending_;
+    int new_size = (int)queue_.size();
+    bool need_notify = (pending_ == 0);
     if (need_notify) {
         pending_ = 1;
     }
     xnet_mutex_unlock(&lock_);
+    
+    if (out_new_size) {
+        *out_new_size = new_size;
+    }
 
     // 在锁外执行写入，减少锁持有时间
-    if (need_notify) {
 #ifdef _WIN32
-        if (!PostQueuedCompletionStatus(iocp_, 0, XTHR_COMPLETION_KEY, nullptr)){
+    if (need_notify && iocp_) {
+        if (!PostQueuedCompletionStatus(iocp_, 0, XTHR_COMPLETION_KEY, nullptr)) {
             DWORD error = GetLastError();
             xlog_err("PostQueuedCompletionStatus failed: error=%d", error);
             xnet_mutex_lock(&lock_);
             pending_ = 0;
             xnet_mutex_unlock(&lock_);
         }
+    }
 #else
-        if(write(fds_[0], "!", 1) < 1){
+    if (need_notify && fds_[0] > 0) {
+        if (write(fds_[0], "!", 1) < 1){
             xnet_mutex_lock(&lock_);
             pending_ = 0;
             xnet_mutex_unlock(&lock_);
         }
-#endif
     }
+#endif
     return true;
 }
 
@@ -261,7 +269,7 @@ static void* worker_func(void* arg) {
 
     if (ctx->on_cleanup) ctx->on_cleanup(ctx);
 
-    xlog_info("Thread[%d:%s] stopped", ctx->id, ctx->name);
+    xlog_err("Thread[%d:%s] stopped", ctx->id, ctx->name);
 
 #ifdef _WIN32
     return 0;
@@ -322,6 +330,7 @@ bool xthread_register(int id, bool xwait_, const char* name,
     ctx->on_update = on_update;
     ctx->on_cleanup = on_cleanup;
     ctx->running = true;
+    ctx->group = nullptr;
     if (!ctx->queue.init()) {
         delete ctx;
         xnet_mutex_unlock(&_lock);
@@ -364,6 +373,7 @@ bool xthread_register_main(int id, bool xwait_, const char* name) {
     ctx->name = name;
     ctx->running = true;
     ctx->handle = 0;
+    ctx->group = nullptr;
 
     if (!ctx->queue.init()) {
         delete ctx;
@@ -415,21 +425,22 @@ int xthread_set_notify(void* fd) {
     xThread* ctx = xthread_current();
     if (!ctx) return -1;
     
-    #ifdef _WIN32
-        ctx->queue.set_iocp((HANDLE)fd);
-        xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", ((int)fd));
-    #else
-        int fd_int = -1;
-        if (fd != nullptr) {
-            fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
-        }
-        if (fd_int > 0) {
-            assert(ctx->queue.get_xwait());
-        }
-        ctx->queue.set_notify_fd(fd_int);
-        xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", (fd_int));
-    #endif
-
+#ifdef _WIN32
+    ctx->queue.set_iocp((HANDLE)fd);
+    xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", ((int)fd));
+#else
+    int fd_int = -1;
+    if (fd != nullptr) {
+        fd_int = static_cast<int>(reinterpret_cast<intptr_t>(fd));
+    }
+    if (fd_int > 0) {
+        assert(ctx->queue.get_xwait());
+    }
+    ctx->queue.set_notify_fd(fd_int);
+    xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", (fd_int));
+#endif
+    xthread_update(); // to process tasks created when thread initing
+    
     return 0;
 }
 
@@ -440,21 +451,45 @@ int xthread_update() {
     return process_tasks(ctx);
 }
 
-bool xthread_post(int target_id, XThreadFunc func, std::vector<VariantType> args) {
+bool xthread_rawpost(int target_id, XThreadFunc func, std::vector<VariantType> args) {
     xThread* target = xthread_get(target_id);
     if (!target || !target->running) return false;
 
-    xthrTask task;
-    task.func = std::move(func);
-    task.args = std::move(args);
-    task.wait_id = 0;
-    task.source_thread = tls_get();
+    xThreadSet* group = target->group;
+    if (!group) {
+        // 单个线程，直接投递
+        xthrTask task;
+        task.func = std::move(func);
+        task.args = std::move(args);
+        task.wait_id = 0;
+        task.source_thread = tls_get();
 
-    xThread* self = xthread_get(task.source_thread);
-    xlog_warn("xthread post msg to:%s-%d, from:%s-%d"
-        , target->name ? target->name : "", target->id
-        , self->name ? self->name : "", self->id);
-    return target->queue.push(std::move(task));
+        xThread* self = xthread_get(task.source_thread);
+        xlog_debug("xthread post msg to:%s-%d, from:%s-%d",
+                  target->name ? target->name : "", target->id,
+                  self ? (self->name ? self->name : "") : "", task.source_thread);
+        return target->queue.push(std::move(task));
+    } else {
+        // 线程组，选择最佳线程
+        xThread* selected = group->select_thread();
+        if (!selected) {
+            xlog_err("ThreadPool[%s] no available thread", group->get_name());
+            return false;
+        }
+
+        xthrTask task;
+        task.func = std::move(func);
+        task.args = std::move(args);
+        task.wait_id = 0;
+        task.source_thread = tls_get();
+
+        int new_size = 0;
+        bool res = selected->queue.push(std::move(task), &new_size);
+        if (res) {
+            group->update_queue_size(selected->id, new_size);
+        }
+        return res;
+    }
 }
 
 // ============================================================================
@@ -479,6 +514,15 @@ xAwaiter xthread_rpc(int target_id, XThreadFunc func, std::vector<VariantType> a
         return xAwaiter(XNET_NOT_IN_COROUTINE);
     }
 
+    // 如果线程属于组，则从组中选择最佳线程
+    xThreadSet* group = target->group;
+    if (group) {
+        target = group->select_thread();
+        if (!target) {
+            return xAwaiter(XTHR_ERR_NO_THREAD);
+        }
+    }
+
     // 构造任务
     xthrTask task;
     task.func = std::move(func);
@@ -487,9 +531,126 @@ xAwaiter xthread_rpc(int target_id, XThreadFunc func, std::vector<VariantType> a
     task.source_thread = tls_get();
 
     // 投递任务
-    if (!target->queue.push(std::move(task))) {
+    int new_size = 0;
+    if (!target->queue.push(std::move(task), &new_size)) {
         return xAwaiter(XTHR_ERR_QUEUE_FULL);
     }
+    
+    if (group) {
+        group->update_queue_size(target->id, new_size);
+    }
+
     awaiter.set_timeout(5000); // TODO: using param
     return awaiter;
+}
+
+// ============================================================================
+// xThreadSet 实现
+// ============================================================================
+
+bool xThreadSet::add_thread(xThread* thread) {
+    int count = thread_count_.load(std::memory_order_relaxed);
+    if (count >= XTHR_GROUP_MAX) {
+        xlog_err("ThreadPool[%s] reached max threads", name_);
+        return false;
+    }
+
+    thread->group = this;
+    threads_[count] = thread;
+    queue_sizes_[count].store(0, std::memory_order_relaxed);
+    thread_count_.store(count + 1, std::memory_order_release);
+
+    xlog_info("Thread[%d:%s] added to pool[%d:%s]",
+              thread->id, thread->name ? thread->name : "unnamed",
+              group_id_, name_);
+    return true;
+}
+
+xThread* xThreadSet::select_thread() {
+    int count = thread_count_.load(std::memory_order_acquire);
+    if (count == 0) return nullptr;
+    
+    switch (strategy_) {
+        case XTHSTRATEGY_ROUND_ROBIN: {
+            int index = next_index_.fetch_add(1, std::memory_order_relaxed) % count;
+            return threads_[index];
+        }
+        case XTHSTRATEGY_RANDOM: {
+            int index = rand() % count;
+            return threads_[index];
+        }
+        case XTHSTRATEGY_LEAST_QUEUE:
+        default: {
+            int best_index = 0;
+            int min_size = queue_sizes_[0].load(std::memory_order_relaxed);
+            
+            for (int i = 1; i < count; i++) {
+                int size = queue_sizes_[i].load(std::memory_order_relaxed);
+                if (size < min_size) {
+                    min_size = size;
+                    best_index = i;
+                }
+            }
+            return threads_[best_index];
+        }
+    }
+}
+
+xThread* xThreadSet::get_thread(int index) {
+    int count = thread_count_.load(std::memory_order_acquire);
+    if (index < 0 || index >= count) {
+        return nullptr;
+    }
+    return threads_[index];
+}
+
+void xThreadSet::update_queue_size(int id, int size) {
+    int count = thread_count_.load(std::memory_order_acquire);
+    for (int i = 0; i < count; i++) {
+        if (threads_[i] && threads_[i]->id == id) {
+            queue_sizes_[i].store(size, std::memory_order_relaxed);
+            return;
+        }
+    }
+    xlog_warn("ThreadPool[%s] thread %d not found", name_, id);
+}
+
+// ============================================================================
+// 线程组注册
+// ============================================================================
+
+bool xthread_register_group(int base_id, int count, ThreadSelStrategy strategy, bool xwait_,
+                           const char* name_pattern,
+                           void (*on_init)(xThread*),
+                           void (*on_update)(xThread*),
+                           void (*on_cleanup)(xThread*)) {
+    if (count <= 0 || base_id <= 0 || (base_id + count) >= XTHR_MAX) {
+        return false;
+    }
+
+    // 创建线程池对象
+    bool all_success = true;
+    xThreadSet* pool = new xThreadSet(base_id, strategy, name_pattern);
+    for (int i = 0; i < count; i++) {
+        int thread_id = base_id + i;
+        char name[32];
+        snprintf(name, sizeof(name), "%s:%02d", name_pattern, i);
+        
+        if (!xthread_register(thread_id, xwait_, name, on_init, on_update, on_cleanup)) {
+            xlog_err("Failed to register thread %d", thread_id);
+            all_success = false;
+            continue;
+        }
+
+        xThread* thread = xthread_get(thread_id);
+        if (thread) {
+            pool->add_thread(thread);
+        }
+    }
+
+    if (!all_success) {
+        delete pool;
+    }
+    
+    return all_success;
 }

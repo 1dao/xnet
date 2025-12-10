@@ -83,7 +83,6 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = 0;
     eventLoop->beforesleep = NULL;
     eventLoop->efhead = 0;
-    eventLoop->nrpc = 0;
     eventLoop->fdWaitSlot = -1;
     if (aeApiCreate(eventLoop) == -1) goto ERR_RET;
     /* Events with mask == AE_NONE are not set. So let's initialize the
@@ -211,7 +210,6 @@ void aeDeleteFileEvent(aeEventLoop* eventLoop, xSocket fd, aeFileEvent* fe, int 
         if (fd == eventLoop->maxfd) {
             /* Update the max fd */
             int j = 0;
-
             for (j = (int)eventLoop->maxfd - 1; j >= 0; j--)
                 if (eventLoop->events[j].mask != AE_NONE) break;
             eventLoop->maxfd = j;
