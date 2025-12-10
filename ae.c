@@ -47,26 +47,7 @@
 #endif
 #include "ae.h"
 #include "zmalloc.h"
-
-///* Include the best multiplexing layer supported by this system.
-// * The following should be ordered by performances, descending. */
-//#ifdef HAVE_EPOLL
-//	#include "ae_epoll.c"
-//#else
-//	#ifdef HAVE_KQUEUE
-//	    #include "ae_kqueue.c"
-//	#else
-//	    #ifdef _WIN32
-//            #ifdef HAVE_IOCP
-//                #include "ae_iocp.c"
-//            #else
-//                #include "ae_ws2.c"
-//            #endif
-//	    #else
-//		    #include "ae_select.c"
-//	    #endif
-//	#endif
-//#endif
+#include "xtimer.h"
 
 /* main aeEventLoop */
 #ifdef _WIN32
@@ -75,7 +56,7 @@ static _declspec(thread) aeEventLoop* _net_ae = NULL;
 static __thread aeEventLoop* _net_ae = NULL;
 #endif
 
-// 向前声明
+// forward declaration
 static int aeApiCreate(aeEventLoop* eventLoop);
 static void aeApiFree(aeEventLoop* eventLoop);
 static int aeApiResize(aeEventLoop* eventLoop, int setsize);
@@ -98,8 +79,6 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*eventLoop->nevents);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto ERR_RET;
     eventLoop->setsize = setsize;
-    eventLoop->timeEventHead = NULL;
-    eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
     eventLoop->maxfd = 0;
     eventLoop->beforesleep = NULL;
@@ -177,16 +156,6 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
     zfree(eventLoop->fired);
-
-    /* Free the time events list. */
-    aeTimeEvent *next_te, *te = eventLoop->timeEventHead;
-    while (te) {
-        next_te = te->next;
-        if (te->finalizerProc)
-            te->finalizerProc(eventLoop, te->clientData);
-        zfree(te);
-        te = next_te;
-    }
     zfree(eventLoop);
 
     if (_net_ae == eventLoop)
@@ -258,160 +227,6 @@ void aeDeleteFileEvent(aeEventLoop* eventLoop, xSocket fd, aeFileEvent* fe, int 
     }
 }
 
-static void aeGetTime(long *seconds, long *milliseconds) {
-#ifdef _WIN32
-    FILETIME ft;
-    GetSystemTimeAsFileTime(&ft);
-
-    ULARGE_INTEGER uli;
-    uli.LowPart = ft.dwLowDateTime;
-    uli.HighPart = ft.dwHighDateTime;
-
-    const unsigned long long EPOCH_DIFF = 11644473600ULL;
-    const unsigned long long HUNDRED_NS_PER_SEC = 10000000ULL;
-    const unsigned long long HUNDRED_NS_PER_USEC = 10ULL;
-    unsigned long long total_hundred_ns = uli.QuadPart - EPOCH_DIFF * HUNDRED_NS_PER_SEC;
-
-    *seconds = (long)(total_hundred_ns / HUNDRED_NS_PER_SEC);
-    *milliseconds = (long)((total_hundred_ns % HUNDRED_NS_PER_SEC) / HUNDRED_NS_PER_USEC);
-#else
-    struct timeval tv;
-
-    gettimeofday(&tv, NULL);
-    *seconds = tv.tv_sec;
-    *milliseconds = tv.tv_usec / 1000;
-#endif
-}
-
-static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
-    long cur_sec, cur_ms, when_sec, when_ms;
-
-    aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + (long)(milliseconds/1000);
-    when_ms = cur_ms + (long)(milliseconds%1000);
-    if (when_ms >= 1000) {
-        when_sec ++;
-        when_ms -= 1000;
-    }
-    *sec = when_sec;
-    *ms = when_ms;
-}
-
-long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
-        aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc) {
-    long long id = eventLoop->timeEventNextId++;
-    aeTimeEvent *te;
-
-    te = (aeTimeEvent *)zmalloc(sizeof(*te));
-    if (te == NULL) return AE_ERR;
-    te->id = id;
-    aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
-    te->timeProc = proc;
-    te->finalizerProc = finalizerProc;
-    te->clientData = clientData;
-    te->next = eventLoop->timeEventHead;
-    eventLoop->timeEventHead = te;
-    return id;
-}
-
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id) {
-    aeTimeEvent *te, *prev = NULL;
-
-    te = eventLoop->timeEventHead;
-    while(te) {
-        if (te->id == id) {
-            if (prev == NULL)
-                eventLoop->timeEventHead = te->next;
-            else
-                prev->next = te->next;
-            if (te->finalizerProc)
-                te->finalizerProc(eventLoop, te->clientData);
-            zfree(te);
-            return AE_OK;
-        }
-        prev = te;
-        te = te->next;
-    }
-    return AE_ERR; /* NO event with the specified ID found */
-}
-
-/* Search the first timer to fire.
- * This operation is useful to know how many time the select can be
- * put in sleep without to delay any event.
- * If there are no timers NULL is returned.
- *
- * Note that's O(N) since time events are unsorted.
- * Possible optimizations (not needed by Redis so far, but...):
- * 1) Insert the event in order, so that the nearest is just the head.
- *    Much better but still insertion or deletion of timers is O(N).
- * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
- */
-static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop) {
-    aeTimeEvent *te = eventLoop->timeEventHead;
-    aeTimeEvent *nearest = NULL;
-
-    while(te) {
-        if (!nearest || te->when_sec < nearest->when_sec ||
-                (te->when_sec == nearest->when_sec &&
-                 te->when_ms < nearest->when_ms))
-            nearest = te;
-        te = te->next;
-    }
-    return nearest;
-}
-
-/* Process time events */
-static int processTimeEvents(aeEventLoop *eventLoop) {
-    int processed = 0;
-    aeTimeEvent *te;
-    long long maxId;
-
-    te = eventLoop->timeEventHead;
-    maxId = eventLoop->timeEventNextId-1;
-    while(te) {
-        long now_sec, now_ms;
-        long long id;
-
-        if (te->id > maxId) {
-            te = te->next;
-            continue;
-        }
-        aeGetTime(&now_sec, &now_ms);
-        if (now_sec > te->when_sec ||
-            (now_sec == te->when_sec && now_ms >= te->when_ms))
-        {
-            int retval;
-
-            id = te->id;
-            retval = te->timeProc(eventLoop, id, te->clientData);
-            processed++;
-            /* After an event is processed our time event list may
-             * no longer be the same, so we restart from head.
-             * Still we make sure to don't process events registered
-             * by event handlers itself in order to don't loop forever.
-             * To do so we saved the max ID we want to handle.
-             *
-             * FUTURE OPTIMIZATIONS:
-             * Note that this is NOT great algorithmically. Redis uses
-             * a single time event so it's not a problem but the right
-             * way to do this is to add the new elements on head, and
-             * to flag deleted elements in a special way for later
-             * deletion (putting references to the nodes to delete into
-             * another linked list). */
-            if (retval != AE_NOMORE) {
-                aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
-            } else {
-                aeDeleteTimeEvent(eventLoop, id);
-            }
-            te = eventLoop->timeEventHead;
-        } else {
-            te = te->next;
-        }
-    }
-    return processed;
-}
-
 /* Process every pending time event, then every pending file event
  * (that may be registered by time event callbacks just processed).
  * Without special flags the function sleeps until some file event
@@ -438,33 +253,27 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
     if (eventLoop->maxfd != 0 || eventLoop->fdWaitSlot !=-1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
-        aeTimeEvent *shortest = NULL;
         struct timeval tv, *tvp;
 
-        if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
-            shortest = aeSearchNearestTimer(eventLoop);
-        if (shortest) {
-            long now_sec, now_ms;
-
-            /* Calculate the time missing for the nearest
-             * timer to fire. */
-            aeGetTime(&now_sec, &now_ms);
+        int interval = -1;
+        if (flags & AE_TIME_EVENTS)
+            interval = xtimer_last();
+        if (interval >= 0) {
             tvp = &tv;
-            tvp->tv_sec = shortest->when_sec - now_sec;
-            if (shortest->when_ms < now_ms) {
-                tvp->tv_usec = ((shortest->when_ms+1000) - now_ms)*1000;
-                tvp->tv_sec --;
+            if (flags & AE_DONT_WAIT) {
+                tvp->tv_sec = 0;
+                tvp->tv_usec = interval > 10 ?(10000):(interval*1000);
             } else {
-                tvp->tv_usec = (shortest->when_ms - now_ms)*1000;
+                tvp->tv_sec = interval / 1000;
+                tvp->tv_usec = (interval % 1000) * 1000;
             }
-            if (tvp->tv_sec < 0) tvp->tv_sec = 0;
-            if (tvp->tv_usec < 0) tvp->tv_usec = 0;
         } else {
             /* If we have to check for events but need to return
              * ASAP because of AE_DONT_WAIT we need to se the timeout
-             * to zero */
+             * to zero, force 100fps*/
             if (flags & AE_DONT_WAIT) {
-                tv.tv_sec = tv.tv_usec = 0;
+                tv.tv_sec = 0;
+                tv.tv_usec = 10000;
                 tvp = &tv;
             } else {
                 /* Otherwise we can block */
@@ -494,9 +303,10 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
             processed++;
         }
     }
+
     /* Check time events */
     if (flags & AE_TIME_EVENTS)
-        processed += processTimeEvents(eventLoop);
+        xtimer_update();
 
     return processed; /* return the number of processed file/time events */
 }
@@ -547,7 +357,6 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 #ifndef HAVE_IOCP
 static int aeSignalProc(struct aeEventLoop *eventLoop, xSocket fd, void *clientData, int mask, int trans) {
     char buf[64];
-    // 读取信号数据，避免fd一直处于可读状态
     while (read((int)clientData, buf, sizeof(buf)) > 0);
     return AE_OK;
 }
@@ -558,10 +367,9 @@ void aeCreateSignalFile(aeEventLoop* eventLoop) {
 #ifndef HAVE_IOCP
     if (eventLoop->signal_fd[0] != 0) return;
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, eventLoop->signal_fd) == 0) {
-        // 设置非阻塞
         fcntl(eventLoop->signal_fd[0], F_SETFL, O_NONBLOCK);
         fcntl(eventLoop->signal_fd[1], F_SETFL, O_NONBLOCK);
-        // 注册读事件
+
         aeCreateFileEvent(eventLoop, eventLoop->signal_fd[1], AE_READABLE, aeSignalProc, NULL, NULL);
     }
 #else
@@ -604,8 +412,8 @@ void aeGetSignalFile(aeEventLoop *eventLoop, xSocket* fdSignal){
 #include "zmalloc.h"
 
 typedef struct aeApiState {
-    HANDLE iocp;                    // IOCP句柄
-    int eventCount;                 // 当前事件数量
+    HANDLE iocp;
+    int eventCount;
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop* eventLoop) {
@@ -668,7 +476,6 @@ static int aeApiPoll(aeEventLoop* eventLoop, struct timeval* tvp) {
     ULONG_PTR completionKey = 0;
     LPOVERLAPPED overlapped = NULL;
 
-    // 获取完成状态
     BOOL result = GetQueuedCompletionStatus(
         state->iocp,
         &bytesTransferred,
@@ -1057,5 +864,5 @@ static char* aeApiName(void) {
     return (char*)"epoll";
 }
 #else
-#error "Your operating system does not support any of the event loops available."
+    #error "Your operating system does not support any of the event loops available."
 #endif

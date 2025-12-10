@@ -32,30 +32,26 @@ namespace std_coro = std;
 #include "xpack.h"
 #include "xlog.h"
 
-// 协程函数类型
-struct xCoroTask;
+struct  xCoroTask;
+class   xAwaiter;
 typedef xCoroTask(*fnCoro)(void*);
 
-// 初始化/销毁协程管理器
 bool coroutine_init();
 void coroutine_uninit();
 
-// 运行协程
 int coroutine_run(fnCoro func, void* arg);
 
-// 协程等待
-void coroutine_sleep(int coroutine_id, int);
-
-// 恢复协程
+// resume api
 bool coroutine_resume(int coroutine_id, void* param);
 bool coroutine_resume(uint32_t wait_id, std::vector<VariantType>&& resp);
 
-// 其他接口
+// utils api
 void coroutine_resume_all();
 bool coroutine_is_done(int coroutine_id);
 size_t coroutine_get_active_count();
 int coroutine_self_id();
 void coroutine_set_stacktrace_mode(int mode);
+xAwaiter coroutine_sleep(int time_ms);
 
 // Hardware exception protection structure
 struct xCoroutineLJ {
@@ -78,7 +74,7 @@ struct xFinAwaiter {
     void await_resume() noexcept {}
 };
 
-// 协程任务类型
+// Coroutine task
 struct xCoroTask {
     struct promise_type {
         int coroutine_id = 0;
@@ -238,11 +234,12 @@ public:
 
     uint32_t wait_id() const noexcept { return wait_id_; }
     int error_code() const noexcept { return error_code_; }
-
+    void set_timeout(int timeout) { timeout_ = timeout; }
 private:
     uint32_t wait_id_;
     int error_code_;
     int coro_id_;
+    int timeout_;
 };
 
 #endif // _XCOROUTINE_H

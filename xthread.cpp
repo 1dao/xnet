@@ -490,5 +490,6 @@ xAwaiter xthread_rpc(int target_id, XThreadFunc func, std::vector<VariantType> a
     if (!target->queue.push(std::move(task))) {
         return xAwaiter(XTHR_ERR_QUEUE_FULL);
     }
+    awaiter.set_timeout(5000); // TODO: using param
     return awaiter;
 }

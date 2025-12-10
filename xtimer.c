@@ -74,10 +74,6 @@ xTimerNode* xtimer_create(xTimerSet* tm, int interval_ms, const char* name, fnOn
     xTimerNode* timer = xtimer_node_new(tm->next_timer_id++, timeout, interval_ms, callback, ud, repeat_num, name);
     xheapmin_insert(tm->timer_heap, (xHeapMinNode*)timer);
 
-    //printf("添加定时器: ID=%d, 名称=%s, %dms后过期, 重复间隔=%dms\n",
-    //    timer->id, timer->name[0] ? timer->name : "<未命名>",
-    //    interval_ms, repeat_num);
-
     return timer;
 }
 
@@ -87,7 +83,6 @@ void xtimer_destroy(xTimerSet* tm, xTimerNode* timer) {
     if (tm && xheapmin_check(tm->timer_heap, (xHeapMinNode*)timer)) {
         xheapmin_remove(tm->timer_heap, timer->base.heap_index);
     }
-    //printf("删除定时器: ID=%d, 名称=%s\n", timer->id, timer->name);
 
     xtimer_node_del(timer);
 }
@@ -97,9 +92,6 @@ void timer_refresh(xTimerSet* tm, xTimerNode* timer) {
 
     long64 new_expire_time = tm->current_time + timer->repeat_interval;
     xheapmin_refresh(tm->timer_heap, (xHeapMinNode*)timer, new_expire_time);
-
-    printf("重新调度定时器: ID=%d, 下次过期时间=%lld\n",
-        timer->id, new_expire_time);
 }
 
 int xtimer_poll(xTimerSet* tm) {
@@ -114,10 +106,8 @@ int xtimer_poll(xTimerSet* tm) {
             break;
         }
 
-        xTimerNode* expired_timer = next_timer;//(xTimerNode*)xheapmin_extract(tm->timer_heap);
+        xTimerNode* expired_timer = next_timer;
         --expired_timer->repeat_num;
-        //printf("定时器触发: ID=%d, 名称=%s, 剩余次数=%d\n",
-        //    expired_timer->id, expired_timer->name, expired_timer->repeat_num);
 
         fnOnTime callback = expired_timer->callback;
         void* ud = expired_timer->user_data;
@@ -177,12 +167,19 @@ void xtimer_uninit() {
     }
 }
 
-int xtimer_update() {
+void xtimer_update() {
+    if (_cur)
+        xtimer_poll(_cur);
+}
+
+int xtimer_last() {
     if (_cur) {
-        return xtimer_poll(_cur);
-    } else {
-        return 0;
+        long64 time_now = time_get_ms();
+        xTimerNode* next_timer = (xTimerNode*)xheapmin_peek(_cur->timer_heap);
+        if(next_timer)
+            return next_timer->base.key> time_now?(int)(next_timer->base.key - time_now):0;
     }
+    return -1;
 }
 
 void xtimer_show() {

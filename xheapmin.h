@@ -218,7 +218,6 @@ void xheapmin_print(xHeapMin* heap) {
     }
 }
 
-
 #ifdef __cplusplus
 }
 #endif

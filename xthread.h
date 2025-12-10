@@ -62,6 +62,7 @@ struct xthrTask {
     std::vector<VariantType> args;
     uint32_t                 wait_id;        // 用于RPC回调(复用xcoroutine的wait机制)
     int                      source_thread;
+    void*                     timer;
 
     xthrTask() : type(XTHR_TASK_NORMAL), wait_id(0), source_thread(0) {}
 

@@ -6,6 +6,7 @@
 #include "xrpc.h"
 #include "xthread.h"
 #include "anet.h"
+#include "xtimer.h"
 
 #include <chrono>
 #include <thread>
@@ -117,6 +118,7 @@ void redis_thread_on_init(xThread* ctx) {
     aeCreateSignalFile(el);
     aeGetSignalFile(el, &fd);
     xthread_set_notify((void*)(intptr_t)fd);
+    xtimer_init(100);
 
     xlog_info("[Redis Thread] ae event loop initialized, signal fd: %d", fd);
 }
@@ -137,6 +139,7 @@ void redis_thread_on_cleanup(xThread* ctx) {
         aeDeleteEventLoop(el);
         ctx->userdata = nullptr;
     }
+    xtimer_uninit();
     xlog_info("[Redis Thread] Cleanup completed");
 }
 
@@ -159,6 +162,7 @@ void compute_thread_on_init(xThread* ctx) {
     aeCreateSignalFile(el);
     aeGetSignalFile(el, &fd);
     xthread_set_notify((void*)(intptr_t)fd);
+    xtimer_init(100);
 
     xlog_info("[Compute Thread] ae event loop initialized, signal fd: %d", fd);
 }
@@ -179,6 +183,7 @@ void compute_thread_on_cleanup(xThread* ctx) {
         aeDeleteEventLoop(el);
         ctx->userdata = nullptr;
     }
+    xtimer_uninit();
     xlog_info("[Compute Thread] Cleanup completed");
 }
 
@@ -199,6 +204,9 @@ xCoroTask test_coroutine_with_ae(void* arg) {
             xlog_err_tag("[Coroutine]", "Redis SET failed: %d", xthread_retcode(result));
         }
     }
+    xlog_err("corount sleep start:");
+    co_await coroutine_sleep(10000);
+    xlog_err("corount sleep finish:");
 
     // Call Redis thread to get data
     {
@@ -295,7 +303,6 @@ xCoroTask performance_test(void* arg) {
                   success_count, total_operations, duration.count());
     xlog_info_tag("[Performance Test]", "Average time per operation: %.2f ms",
                   duration.count() / (double)total_operations);
-
     co_return;
 }
 
@@ -315,6 +322,7 @@ int main() {
     xlog_set_show_thread_name(true);
     coroutine_init();
     xthread_init();
+    xtimer_init(500);
 
     // Register main thread (no ae event loop for main thread)
     xthread_register_main(XTHR_MAIN, true, "Main");
@@ -369,6 +377,7 @@ int main() {
     coroutine_uninit();
     xlog_uninit();
     aeDeleteEventLoop(el);
+    xtimer_uninit();
 
     xlog_info("All resources cleaned up successfully");
     return 0;

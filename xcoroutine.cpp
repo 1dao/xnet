@@ -11,6 +11,7 @@
 
 // 包含堆栈跟踪实现
 #include "xtraceback.inl"
+#include "xtimer.h"
 
 // Forward declaration
 class xCoroService;
@@ -267,8 +268,7 @@ bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
             }
             success = false;
         }
-    }
-    else {
+    } else {
         // 硬件异常路径
         xlog_err("*** HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ***",
             handle_.promise().coroutine_id, lj->sig);
@@ -280,6 +280,9 @@ bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
     _cur_lj = old_lj;
     return success;
 }
+
+// waiter timeout
+void* coroutine_timer(uint32_t wait_id, int time_ms);
 
 // ==============================================
 // Coroutine manager implementation
@@ -301,6 +304,7 @@ public:
         std::unique_ptr<std::vector<VariantType>> result;
         bool done = false;
         int coro_id = -1;
+        void* timer = nullptr;
     };
     std::unordered_map<uint32_t, PendingWait> wait_map_;
 
@@ -521,7 +525,6 @@ private:
 
         xlog_info("Safe resuming coroutine %d with HW protection in context: %s", coro_id, context);
 
-        // 硬件异常保护
 #if XCORO_PLATFORM_WINDOWS
         if (setjmp(temp_lj.buf) == 0) {
 #else
@@ -537,13 +540,10 @@ private:
             catch (...) {
                 xlog_err("Unknown exception in coroutine %d", coro_id);
             }
-        }
-        else {
-            // 硬件异常被捕获
+        } else {
             xlog_err("*** HW EXCEPTION in coroutine %d during %s: signal %d ***",
                 coro_id, context, temp_lj.sig);
 
-            // 记录Linux特定的信号信息
 #if XCORO_PLATFORM_UNIX
             switch (temp_lj.sig) {
             case SIGSEGV:
@@ -572,7 +572,7 @@ private:
 
 public:
     // -------------------- Wait related --------------------
-    void register_waiter(uint32_t wait_id, std_coro::coroutine_handle<> h, int coro_id) {
+    void register_waiter(uint32_t wait_id, std_coro::coroutine_handle<> h, int coro_id, int timeout) {
         std_coro::coroutine_handle<> to_resume = nullptr;
         int resume_coro_id = -1;
         {
@@ -580,9 +580,12 @@ public:
             auto& p = wait_map_[wait_id];
             p.handle = h;
             p.coro_id = coro_id;
+            p.timer = nullptr;
             if (p.done && p.result) {
                 to_resume = p.handle;
                 resume_coro_id = p.coro_id;
+            } else if(timeout > 0) {
+                p.timer = coroutine_timer(wait_id, timeout);
             }
         }
         if (to_resume) {
@@ -595,12 +598,50 @@ public:
         int resume_coro_id = -1;
         {
             XMutexGuard lock(&wait_mutex);
-            auto& p = wait_map_[wait_id];
+            auto it = wait_map_.find(wait_id);
+            if (it == wait_map_.end())
+                return;
+
+            auto& p = it->second;
             p.result = std::make_unique<std::vector<VariantType>>(std::move(resp));
             p.done = true;
             if (p.handle) {
                 to_resume = p.handle;
                 resume_coro_id = p.coro_id;
+            }
+
+            if (p.timer) {
+                xtimer_del((xtimerHandler)p.timer);
+                p.timer = nullptr;
+            }
+        }
+        if (to_resume) {
+            resume_with_hw_protection(to_resume, resume_coro_id, "resume_waiter");
+        }
+    }
+
+    void resume_waiter_timeout(uint32_t wait_id) {
+        std_coro::coroutine_handle<> to_resume = nullptr;
+        int resume_coro_id = -1;
+        {
+            XMutexGuard lock(&wait_mutex);
+            auto& p = wait_map_[wait_id];
+
+            char buf[32];
+            snprintf(buf, sizeof(buf), "CoroWaiter %d timed out", wait_id);
+
+            auto err = std::make_unique<std::vector<VariantType>>();
+            err->push_back(VariantType(-1));
+            err->push_back(XPackBuff(buf));
+
+            p.result = std::move(err);
+            p.done = true;
+            if (p.handle) {
+                to_resume = p.handle;
+                resume_coro_id = p.coro_id;
+            }
+            if (p.timer) { /* delay timer auto deleted */
+                p.timer = nullptr;
             }
         }
         if (to_resume) {
@@ -636,18 +677,19 @@ std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_hand
 xAwaiter::xAwaiter()
     : wait_id_(_co_svs ? _co_svs->generate_wait_id() : 0)
     , error_code_(0)
-    , coro_id_(_co_cid) {  // Save current coroutine ID
+    , coro_id_(_co_cid)
+    , timeout_(0){
 }
 
 xAwaiter::xAwaiter(int err)
     : wait_id_(0)
     , error_code_(err)
-    , coro_id_(-1) {
+    , timeout_(0){
 }
 
 void xAwaiter::await_suspend(std_coro::coroutine_handle<> h) {
     if (!_co_svs) return;
-    _co_svs->register_waiter(wait_id_, h, coro_id_);
+    _co_svs->register_waiter(wait_id_, h, coro_id_, timeout_);
 }
 
 std::vector<VariantType> xAwaiter::await_resume() {
@@ -658,26 +700,21 @@ std::vector<VariantType> xAwaiter::await_resume() {
     }
     if (!_co_svs) return {};
 
-    // 添加异常保护
     try {
         return _co_svs->take_wait_result(wait_id_);
-    }
-    catch (const std::bad_variant_access& e) {
+    } catch (const std::bad_variant_access& e) {
         xlog_err("Variant access exception in await_resume for coroutine %d: %s", coro_id_, e.what());
-        // 返回错误结果
         std::vector<VariantType> err;
-        err.emplace_back(-1);  // 错误码
+        err.emplace_back(-1);
         err.emplace_back((std::string("Variant access error: ") + e.what()).c_str());
         return err;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         xlog_err("Exception in await_resume for coroutine %d: %s", coro_id_, e.what());
         std::vector<VariantType> err;
         err.emplace_back(-1);
         err.emplace_back((std::string("Exception: ") + e.what()).c_str());
         return err;
-    }
-    catch (...) {
+    } catch (...) {
         xlog_err("Unknown exception in await_resume for coroutine %d", coro_id_);
         std::vector<VariantType> err;
         err.emplace_back(-1);
@@ -697,8 +734,7 @@ bool coroutine_init() {
         install_signal_handlers();
         xlog_info("Coroutine system initialized with hardware exception protection");
         return true;
-    }
-    catch (...) {
+    } catch (...) {
         return false;
     }
 }
@@ -718,6 +754,34 @@ bool coroutine_resume(int id, void* param) {
 
 void coroutine_resume_all() {
     if (_co_svs) _co_svs->resume_all();
+}
+
+static void coroutine_wait_timeout(void* data) {
+    uint32_t wait_id = (uint32_t)data;
+    if (_co_svs) _co_svs->resume_waiter_timeout(wait_id);
+}
+
+void* coroutine_timer(uint32_t wait_id, int time_ms) {
+    if (time_ms < 10) time_ms = 10;
+
+    char name[32];
+    snprintf(name, sizeof(name), "coro:wait:%d", wait_id);
+    return (void*)xtimer_add(time_ms, name, coroutine_wait_timeout, (void*)wait_id, 0);
+}
+
+static void coroutine_weekup(void* data) {
+    uint32_t coro_id = (uint32_t)data;
+    if (_co_svs) _co_svs->resume_coroutine(coro_id, NULL);
+}
+
+xAwaiter coroutine_sleep(int time_ms) {
+    if (_co_svs) {
+        xAwaiter awaiter;
+        awaiter.set_timeout(time_ms);
+        return awaiter;
+    } else {
+        return xAwaiter(0);
+    }
 }
 
 bool coroutine_is_done(int id) {
@@ -740,13 +804,13 @@ bool coroutine_resume(uint32_t wait_id, std::vector<VariantType> && resp) {
 
 void coroutine_set_stacktrace_mode(int mode) {
     switch (mode) {
-    case 0:  // 自动检测
+    case 0:
         xtraceback_auto_detect();
         break;
-    case 1:  // 强制简单模式
+    case 1:
         xtraceback_force_simple();
         break;
-    case 2:  // 强制详细模式
+    case 2:
         xtraceback_force_detailed();
         break;
     default:

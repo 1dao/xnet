@@ -56,7 +56,6 @@ extern "C" {
 #define AE_NOMORE -1
 
 
-
 struct aeEventLoop;
 
 /* Types and data structures, trans for iocp */
@@ -75,17 +74,6 @@ typedef struct aeFileEvent {
     void            *clientData;
 } aeFileEvent;
 
-/* Time event structure */
-typedef struct aeTimeEvent {
-    long long id; /* time event identifier. */
-    long when_sec; /* seconds */
-    long when_ms; /* milliseconds */
-    aeTimeProc *timeProc;
-    aeEventFinalizerProc *finalizerProc;
-    void *clientData;
-    struct aeTimeEvent *next;
-} aeTimeEvent;
-
 /* A fired event */
 typedef struct aeFiredEvent {
     xSocket fd;
@@ -98,7 +86,6 @@ typedef struct aeFiredEvent {
 typedef struct aeEventLoop {
     xSocket     maxfd;                  /* highest file descriptor currently registered */
     int         setsize;                /* max number of file descriptors tracked */
-    long long   timeEventNextId;
     int         nevents;                /* Size of Registered events */
     aeFileEvent* events;                /* Registered events */
     aeFiredEvent* fired;                /* Fired events */
@@ -106,16 +93,14 @@ typedef struct aeEventLoop {
     int         efhead;                 /* freehead */
     int         nrpc;
 
-    aeTimeEvent *timeEventHead;
     int stop;
-    void *apidata; /* This is used for polling API specific data */
+    void *apidata;                      /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
 
-    // 信号fd相关字段
 #ifndef HAVE_IOCP
-    xSocket signal_fd[2];           // 信号fd对 [0]:读端, [1]:写端
+    xSocket signal_fd[2];               /* signal pair fd对[0]:read, [1] : write */
 #endif
-    int fdWaitSlot;                // 是否ae创建的信号fd
+    int fdWaitSlot;                     /* signal fileEvent index */ 
 } aeEventLoop;
 
 /* Prototypes */
@@ -126,10 +111,6 @@ void aeStop(aeEventLoop *eventLoop);
 int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
         aeFileProc *proc, void *clientData, aeFileEvent** ev);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, xSocket fd, aeFileEvent* fe, int mask);
-long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
-        aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc);
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(xSocket fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);

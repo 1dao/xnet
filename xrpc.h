@@ -48,10 +48,12 @@ xAwaiter xrpc_pcall(xChannel* s, uint16_t protocol, Args&&... args) {
     s->wpos += sizeof(protocol);
 
     int sendlen = xchannel_rawsend(s, packed.get(), packed.len);
-    if (sendlen != packed.len)
+    if (sendlen != packed.len) {
         return xAwaiter(XNET_BUFF_LIMIT);
-    else
+    } else {
+        awaiter.set_timeout(10000); // TODO: using param
         return awaiter;
+    }
 }
 
 // 函数声明 - POST 模式

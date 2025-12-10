@@ -13,7 +13,8 @@ typedef void* xtimerHandler;
 // api
 void xtimer_init(int cap);
 void xtimer_uninit();
-int  xtimer_update();
+void xtimer_update();
+int  xtimer_last();
 void xtimer_show();
 
 xtimerHandler xtimer_add(int interval_ms, const char* name, fnOnTime callback, void* ud, int repeat_num);
