@@ -583,9 +583,12 @@ xThread* xThreadSet::select_thread() {
         default: {
             int best_index = 0;
             int min_size = queue_sizes_[0].load(std::memory_order_relaxed);
-            
+            if (min_size == 0)
+                return threads_[0];
             for (int i = 1; i < count; i++) {
                 int size = queue_sizes_[i].load(std::memory_order_relaxed);
+                if (size == 0)
+                    return threads_[i];
                 if (size < min_size) {
                     min_size = size;
                     best_index = i;
