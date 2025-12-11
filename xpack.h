@@ -38,10 +38,11 @@
  *       // 1. 准备要打包的数据
  *       int i = 123;
  *       float f = 3.14f;
- *       XPackBuff input_buf("hello world", 11);
+ *       std::string str = "hello world";
+ *       XPackBuff input_buf("binary data", 11);
  *
  *       // 2. 打包 (目标为大端序)，结果直接存储在 XPackBuff 中
- *       XPackBuff packed = xpack_pack(true, i, f, input_buf);
+ *       XPackBuff packed = xpack_pack(true, i, f, str, input_buf);
  *
  *       // 3. 解包
  *       auto unpacked = xpack_unpack(packed.get(), packed.len);
@@ -49,12 +50,13 @@
  *       // 4. 提取并使用数据
  *       auto unpacked_i = xpack_cast<int>(unpacked[0]);
  *       auto unpacked_f = xpack_cast<float>(unpacked[1]);
- *       auto unpacked_buf = xpack_cast<XPackBuff>(unpacked[2]);
+ *       auto unpacked_str = xpack_cast<std::string>(unpacked[2]);
+ *       auto unpacked_buf = xpack_cast<XPackBuff>(unpacked[3]);
  *
  *       // 验证类型和值
- *       std::cout << "unpacked_c (类型: " << typeid(unpacked_c).name() << "): " << unpacked_c << std::endl;
- *       std::cout << "unpacked_i (类型: " << typeid(unpacked_i).name() << "): " << unpacked_i << std::endl;
- *       std::cout << "unpacked_f (类型: " << typeid(unpacked_f).name() << "): " << unpacked_f << std::endl;
+ *       std::cout << "unpacked_i: " << unpacked_i << std::endl;
+ *       std::cout << "unpacked_f: " << unpacked_f << std::endl;
+ *       std::cout << "unpacked_str: " << unpacked_str << std::endl;
  *   }
  *
  * =====================================================================================
@@ -74,6 +76,7 @@
   *   - 将 len 字段从 size_t 改为 int，支持错误码
   *   - 添加 success() 和 error_code() 方法
   *   - 所有内部计算使用 int 类型
+  *   - 添加 std::string 类型支持
   *
   * =====================================================================================
   */
@@ -93,10 +96,13 @@
 #include <string>
 #include <optional>
 
-// =====================================================================================
-//                                 公共数据结构定义
-// =====================================================================================
-struct XPackBuff {
+#include <map>
+#include <unordered_set>
+
+  // =====================================================================================
+  //                                 公共数据结构定义
+  // =====================================================================================
+    struct XPackBuff {
     std::unique_ptr<char[]> data;
     int len;
 
@@ -109,13 +115,12 @@ struct XPackBuff {
     }
     XPackBuff(const char* cstr) {
         if (!cstr) { len = 0; return; }
-        len = static_cast<int>(std::strlen(cstr)+1);
+        len = static_cast<int>(std::strlen(cstr) + 1);
         if (len > 0) {
             data = std::make_unique<char[]>(len);
             std::memcpy(data.get(), cstr, len);
         }
     }
-    // 移除 std::string 构造函数，避免 variant 冲突
     XPackBuff(std::unique_ptr<char[]> d, int l) : data(std::move(d)), len(l) {}
 
     // 移动构造函数
@@ -151,7 +156,7 @@ enum class TypeEnum : uint8_t {
     Long, UnsignedLong,
     LongLong, UnsignedLongLong,
     Float, Double, LongDouble,
-    Bool, XPackBuff
+    Bool, XPackBuff, String
 };
 
 using VariantType = std::variant<
@@ -161,7 +166,10 @@ using VariantType = std::variant<
     long, unsigned long,
     long long, unsigned long long,
     float, double, long double,
-    bool, XPackBuff
+    bool, XPackBuff, std::string,
+    std::vector<std::string>,
+    std::map<std::string, std::string>,
+    std::unordered_set<std::string>
 >;
 
 // =====================================================================================
@@ -179,6 +187,12 @@ inline XPackBuff xpack_cast<XPackBuff>(VariantType& var) {
     throw std::runtime_error("Type mismatch when extracting XPackBuff from variant");
 }
 
+template<>
+inline std::string xpack_cast<std::string>(VariantType& var) {
+    if (std::string* val = std::get_if<std::string>(&var)) return std::move(*val);
+    throw std::runtime_error("Type mismatch when extracting std::string from variant");
+}
+
 template<typename T>
 std::optional<T> xpack_cast_optional(const std::vector<VariantType>& vec, size_t index) {
     if (index >= vec.size()) {
@@ -186,8 +200,10 @@ std::optional<T> xpack_cast_optional(const std::vector<VariantType>& vec, size_t
     }
 
     try {
-        return xpack_cast<T>(vec[index]);
-    } catch (...) {
+        VariantType& var = const_cast<VariantType&>(vec[index]);
+        return xpack_cast<T>(var);
+    }
+    catch (...) {
         return std::nullopt;
     }
 }
@@ -231,6 +247,7 @@ TypeEnum get_type_tag() {
     else if (std::is_same<T, long double>::value) return TypeEnum::LongDouble;
     else if (std::is_same<T, bool>::value) return TypeEnum::Bool;
     else if (std::is_same<T, XPackBuff>::value) return TypeEnum::XPackBuff;
+    else if (std::is_same<T, std::string>::value) return TypeEnum::String;
     else throw std::invalid_argument("Unsupported type (get_type_tag)");
 }
 
@@ -238,7 +255,8 @@ inline int calculate_element_size(const char* str) {
     if (str) {
         int len = static_cast<int>(std::strlen(str)) + 1;
         return 1 + sizeof(int) + len;  // type_tag + length + data
-    } else {
+    }
+    else {
         return 1 + sizeof(int);  // type_tag + length(0)
     }
 }
@@ -249,6 +267,10 @@ inline int calculate_element_size(char* str) {
 
 inline int calculate_element_size(const XPackBuff& arg) {
     return 1 + sizeof(int) + arg.len;
+}
+
+inline int calculate_element_size(const std::string& arg) {
+    return 1 + sizeof(int) + static_cast<int>(arg.size());  // type_tag + length + data (不包含结尾空字符)
 }
 
 template<typename T>
@@ -289,10 +311,23 @@ inline void pack_string(char* buffer, int& offset, bool system_big, bool target_
     if (str) {
         XPackBuff buff(str);  // 使用 XPackBuff 的字符串构造函数
         pack_buffer(buffer, offset, system_big, target_big, buff);
-    } else {
+    }
+    else {
         // 空字符串
         XPackBuff buff;
         pack_buffer(buffer, offset, system_big, target_big, buff);
+    }
+}
+
+inline void pack_std_string(char* buffer, int& offset, bool system_big, bool target_big, const std::string& str) {
+    buffer[offset++] = static_cast<uint8_t>(TypeEnum::String);
+    int len = static_cast<int>(str.size());
+    if (system_big != target_big) len = endian_swap<int>(len);
+    std::memcpy(buffer + offset, &len, sizeof(int));
+    offset += sizeof(int);
+    if (len > 0) {
+        std::memcpy(buffer + offset, str.data(), len);
+        offset += len;
     }
 }
 
@@ -308,10 +343,15 @@ inline void pack_data(char* buffer, int& offset, bool system_big, bool target_bi
     pack_buffer(buffer, offset, system_big, target_big, value);
 }
 
+inline void pack_data(char* buffer, int& offset, bool system_big, bool target_big, const std::string& value) {
+    pack_std_string(buffer, offset, system_big, target_big, value);
+}
+
 template<typename T>
 typename std::enable_if<!std::is_same<T, XPackBuff>::value
-                     && !std::is_pointer<T>::value>::type
-pack_data(char* buffer, int& offset, bool system_big, bool target_big, const T& value) {
+    && !std::is_same<T, std::string>::value
+    && !std::is_pointer<T>::value>::type
+    pack_data(char* buffer, int& offset, bool system_big, bool target_big, const T& value) {
     pack_basic<T>(buffer, offset, system_big, target_big, value);
 }
 
@@ -364,6 +404,23 @@ inline XPackBuff unpack_buffer(const char* buffer, int& offset, bool data_big, i
     return XPackBuff(std::move(data), len);
 }
 
+inline std::string unpack_std_string(const char* buffer, int& offset, bool data_big, int& remaining) {
+    if (sizeof(int) > remaining) throw std::runtime_error("Insufficient data for string length");
+    int len = 0;
+    std::memcpy(&len, buffer + offset, sizeof(int));
+    offset += sizeof(int);
+    remaining -= sizeof(int);
+    if (data_big != is_big_endian()) len = endian_swap<int>(len);
+    if (len > remaining) throw std::runtime_error("Invalid string length");
+    std::string result;
+    if (len > 0) {
+        result.assign(buffer + offset, len);
+        offset += len;
+        remaining -= len;
+    }
+    return result;
+}
+
 inline VariantType unpack_single(const char* buffer, int& offset, bool data_big, int& remaining) {
     if (remaining < 1) throw std::runtime_error("Insufficient data for type tag");
     TypeEnum tag = static_cast<TypeEnum>(static_cast<uint8_t>(buffer[offset++]));
@@ -385,6 +442,7 @@ inline VariantType unpack_single(const char* buffer, int& offset, bool data_big,
     case TypeEnum::LongDouble: return unpack_basic<long double>(buffer, offset, data_big, remaining);
     case TypeEnum::Bool: return unpack_basic<bool>(buffer, offset, data_big, remaining);
     case TypeEnum::XPackBuff: return unpack_buffer(buffer, offset, data_big, remaining);
+    case TypeEnum::String: return unpack_std_string(buffer, offset, data_big, remaining);
     default: throw std::runtime_error("Unknown TypeEnum");
     }
 }

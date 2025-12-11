@@ -1,6 +1,7 @@
 ﻿#include <string.h>
 #include "xchannel.h"
 #include "xchannel.inl"
+#include "xpack_redis.h"
 
 //*********************************
 // 包操作对象定义与实现
@@ -136,10 +137,70 @@ static int blp4_read_header(xChannel* channel, size_t* data_len) {
     return 4;
 }
 
+// ==================== RESP2协议实现 ====================
+
+static xChannelErrCode resp2_check_complete(xChannel* channel) {
+    if (!channel)
+        return PACKET_FD_INVALD;
+    if (redis::redis_check_complete(channel->rbuf, (int)(channel->rpos-channel->rbuf), RedisProtocol::RESP2))
+        return PACKET_SUCCESS;
+    return PACKET_INCOMPLETE;
+}
+
+static int resp2_write_header(xChannel* channel, size_t data_len) {
+    if (!channel || !channel->wbuf) {
+        return PACKET_FD_INVALD;
+    }
+
+    // 检查缓冲区空间
+    if (channel->wlen - (channel->wpos - channel->wbuf) < (int)data_len + 4) {
+        return PACKET_BUF_LEAK;
+    }
+    return 0;
+}
+
+static int resp2_read_header(xChannel* channel, size_t* data_len) {
+    if (!channel || !channel->rbuf || !channel->rpos || !data_len) {
+        return PACKET_FD_INVALD;
+    }
+    *data_len = (int)(channel->rpos - channel->rbuf);
+    return 0;
+}
+
+// ==================== RESP3协议实现 ====================
+
+static xChannelErrCode resp3_check_complete(xChannel* channel) {
+    if (!channel)
+        return PACKET_FD_INVALD;
+    if (redis::redis_check_complete(channel->rbuf, (int)(channel->rpos - channel->rbuf), RedisProtocol::RESP3))
+        return PACKET_SUCCESS;
+    return PACKET_INCOMPLETE;
+}
+
+static int resp3_write_header(xChannel* channel, size_t data_len) {
+    if (!channel || !channel->wbuf) {
+        return PACKET_FD_INVALD;
+    }
+
+    // 检查缓冲区空间
+    if (channel->wlen - (channel->wpos - channel->wbuf) < (int)data_len + 4) {
+        return PACKET_BUF_LEAK;
+    }
+    return 0;
+}
+
+static int resp3_read_header(xChannel* channel, size_t* data_len) {
+    if (!channel || !channel->rbuf || !channel->rpos || !data_len) {
+        return PACKET_FD_INVALD;
+    }
+    *data_len = (int)(channel->rpos - channel->rbuf);
+    return 0;
+}
+
 // ==================== 全局操作对象数组 ====================
 
-const PacketOps _g_pack_ops[aeproto_max] = {
-    // aeproto_blp2 = 0
+const PacketOps _g_pack_ops[xproto_max] = {
+    // xproto_blp2 = 0
     {
         blp2_check_complete,    // check_complete
         blp2_write_header,      // write_header
@@ -147,18 +208,34 @@ const PacketOps _g_pack_ops[aeproto_max] = {
         2,                      // header_size
         "BLP2"                  // proto_name
     },
-    // aeproto_blp4 = 1
+    // xproto_blp4 = 1
     {
         blp4_check_complete,    // check_complete
         blp4_write_header,      // write_header
         blp4_read_header,       // read_header
         4,                      // header_size
         "BLP4"                  // proto_name
-    }
+    },
+    // xproto_crlf_resp2 = 2
+    {
+        resp2_check_complete,    // check_complete
+        resp2_write_header,      // write_header
+        resp2_read_header,       // read_header
+        0,                       // header_size
+        "RESP2"                  // proto_name
+    },
+    // xproto_crlf_resp3 = 3
+    {
+        resp3_check_complete,    // check_complete
+        resp3_write_header,      // write_header
+        resp3_read_header,       // read_header
+        0,                       // header_size
+        "RESP3"                  // proto_name
+    },
 };
 
 const PacketOps* _xchannel_get_ops(xChannel* channel) {
-    if (!channel || channel->pproto >= aeproto_max) {
+    if (!channel || channel->pproto >= xproto_max) {
         return NULL;
     }
     return &_g_pack_ops[channel->pproto];

@@ -222,6 +222,199 @@ struct xCoroTask {
     }
 };
 
+// Template coroutine task for return value T
+template<typename T>
+struct xCoroTaskT {
+    struct promise_type {
+        int coroutine_id = 0;
+        std::exception_ptr exception_ptr = nullptr;
+        int hardware_signal = 0;
+        bool exception_handled = false;
+        std::optional<T> result_value{};  // 存储返回值
+
+        promise_type() = default;
+
+        xCoroTaskT get_return_object() {
+            return xCoroTaskT{ std_coro::coroutine_handle<promise_type>::from_promise(*this) };
+        }
+
+        std_coro::suspend_never initial_suspend() { return {}; }
+
+        xFinAwaiter final_suspend() noexcept {
+            return xFinAwaiter(coroutine_id);
+        }
+
+        void unhandled_exception() {
+            exception_ptr = std::current_exception();
+            exception_handled = false;
+        }
+
+        void return_value(const T& value) {
+            result_value = value;
+        }
+
+        void return_value(T&& value) {
+            result_value = std::move(value);
+        }
+
+        template<typename Awaitable>
+        auto await_transform(Awaitable&& awaitable) {
+            return std::forward<Awaitable>(awaitable);
+        }
+
+        // 获取返回值
+        const T& result() const {
+            if (result_value.has_value()) {
+                return result_value.value();
+            }
+            throw std::runtime_error("Coroutine has no result value");
+        }
+
+        // 检查是否有未处理的C++异常
+        bool has_cpp_exception() const {
+            return exception_ptr != nullptr && !exception_handled;
+        }
+
+        // 检查是否有硬件异常
+        bool has_hardware_exception() const {
+            return hardware_signal != 0;
+        }
+
+        // 检查是否有任何异常
+        bool has_any_exception() const {
+            return has_cpp_exception() || has_hardware_exception();
+        }
+
+        // 重新抛出并处理异常
+        void handle_exception() {
+            if (has_cpp_exception()) {
+                try {
+                    std::rethrow_exception(exception_ptr);
+                }
+                catch (const std::bad_variant_access& e) {
+                    xlog_err("Variant access exception in coroutine %d: %s", coroutine_id, e.what());
+                }
+                catch (const std::exception& e) {
+                    xlog_err("C++ exception in coroutine %d: %s", coroutine_id, e.what());
+                }
+                catch (...) {
+                    xlog_err("Unknown C++ exception in coroutine %d", coroutine_id);
+                }
+                exception_handled = true;
+            }
+        }
+
+        // 获取异常信息
+        std::string get_exception_message() const {
+            if (has_cpp_exception()) {
+                try {
+                    std::rethrow_exception(exception_ptr);
+                }
+                catch (const std::exception& e) {
+                    return std::string("C++ exception: ") + e.what();
+                }
+                catch (...) {
+                    return "Unknown C++ exception";
+                }
+            }
+            else if (has_hardware_exception()) {
+                return std::string("Hardware exception: ") + get_hardware_exception_message();
+            }
+            return "";
+        }
+
+        // 获取硬件异常信息
+        std::string get_hardware_exception_message() const {
+            switch (hardware_signal) {
+#if defined(__APPLE__) || defined(__LINUX__)
+            case SIGSEGV: return "Segmentation fault (memory access violation)";
+            case SIGFPE:  return "Floating point exception (division by zero)";
+            case SIGILL:  return "Illegal instruction";
+            case SIGABRT: return "Abort signal";
+            case SIGBUS:  return "Bus error";
+            case SIGTRAP: return "Trace/breakpoint trap";
+#elif defined(_WIN32) || defined(_WIN64)
+            case EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
+            case EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
+            case EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
+            case EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
+            case EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
+#endif
+            default:      return "Unknown hardware exception";
+            }
+        }
+    };
+
+    std_coro::coroutine_handle<promise_type> handle_;
+
+    xCoroTaskT() : handle_(nullptr) {}
+    xCoroTaskT(std_coro::coroutine_handle<promise_type> h) : handle_(h) {}
+    xCoroTaskT(const xCoroTaskT&) = delete;
+    xCoroTaskT& operator=(const xCoroTaskT&) = delete;
+    xCoroTaskT(xCoroTaskT&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
+    xCoroTaskT& operator=(xCoroTaskT&& other) noexcept {
+        if (this != &other) {
+            if (handle_) handle_.destroy();
+            handle_ = other.handle_;
+            other.handle_ = nullptr;
+        }
+        return *this;
+    }
+    ~xCoroTaskT() { if (handle_) handle_.destroy(); }
+
+    bool done() const {
+        return !handle_ || handle_.done();
+    }
+
+    // 安全的恢复方法，支持硬件异常保护
+    bool resume_safe(void* param, xCoroutineLJ* lj);
+
+    // awaitable interface
+    bool await_ready() const noexcept {
+        return done();
+    }
+
+    void await_suspend(std_coro::coroutine_handle<> h) noexcept {
+        // 可以在这里添加挂起逻辑，如果需要的话
+        // 当前实现中，我们让调用者直接恢复这个协程
+    }
+
+    T await_resume() {
+        if (has_any_exception()) {
+            // 如果有异常，重新抛出
+            get_promise().handle_exception();
+            throw std::runtime_error(get_promise().get_exception_message());
+        }
+        return get_promise().result();
+    }
+
+    promise_type& get_promise() { return handle_.promise(); }
+    const promise_type& get_promise() const { return handle_.promise(); }
+
+    // 获取返回值
+    const T& result() const {
+        return get_promise().result();
+    }
+
+    // 检查是否有任何异常
+    bool has_any_exception() const {
+        return handle_ && get_promise().has_any_exception();
+    }
+
+    // 获取异常信息
+    std::string get_exception_message() const {
+        if (!handle_) return "";
+        return get_promise().get_exception_message();
+    }
+
+    // 处理异常
+    void handle_exception() {
+        if (handle_) {
+            get_promise().handle_exception();
+        }
+    }
+};
+
 // Awaiter：协程挂起/恢复的桥接
 class xAwaiter {
 public:

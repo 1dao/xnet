@@ -281,6 +281,62 @@ bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
     return success;
 }
 
+// ==============================================
+// Safe resume implementation for xCoroTaskT<T>
+// ==============================================
+
+template<typename T>
+bool xCoroTaskT<T>::resume_safe(void* param, xCoroutineLJ* lj) {
+    if (!handle_ || handle_.done()) return false;
+
+    // Save current LJ state
+    xCoroutineLJ* old_lj = _cur_lj;
+    _cur_lj = lj;
+    lj->in_protected_call = true;
+    lj->sig = 0;
+
+    bool success = false;
+
+    // 硬件异常保护
+#if defined(_WIN32) || defined(_WIN64)
+    if (setjmp(lj->buf) == 0) {
+#else
+    if (sigsetjmp(lj->buf, 1) == 0) {  // Linux下使用sigsetjmp，第二个参数1表示保存信号掩码
+#endif
+        // 正常执行路径
+        try {
+            handle_.resume();
+            success = true;
+        }
+        catch (const std::exception& e) {
+            xlog_err("C++ exception in coroutine %d: %s",
+                handle_.promise().coroutine_id, e.what());
+            if (!handle_.promise().exception_ptr) {
+                handle_.promise().exception_ptr = std::current_exception();
+            }
+            success = false;
+        }
+        catch (...) {
+            xlog_err("Unknown C++ exception in coroutine %d", handle_.promise().coroutine_id);
+            if (!handle_.promise().exception_ptr) {
+                handle_.promise().exception_ptr = std::current_exception();
+            }
+            success = false;
+        }
+    }
+    else {
+        // 硬件异常路径
+        xlog_err("*** HARDWARE EXCEPTION CAUGHT in coroutine %d: signal %d ***",
+            handle_.promise().coroutine_id, lj->sig);
+        handle_.promise().hardware_signal = lj->sig;
+        success = false;
+    }
+
+    lj->in_protected_call = false;
+    _cur_lj = old_lj;
+    return success;
+}
+
 // waiter timeout
 void* coroutine_timer(uint32_t wait_id, int time_ms);
 
@@ -706,19 +762,19 @@ std::vector<VariantType> xAwaiter::await_resume() {
         xlog_err("Variant access exception in await_resume for coroutine %d: %s", coro_id_, e.what());
         std::vector<VariantType> err;
         err.emplace_back(-1);
-        err.emplace_back((std::string("Variant access error: ") + e.what()).c_str());
+        err.emplace_back((std::string("Variant access error: ") + e.what()));
         return err;
     } catch (const std::exception& e) {
         xlog_err("Exception in await_resume for coroutine %d: %s", coro_id_, e.what());
         std::vector<VariantType> err;
         err.emplace_back(-1);
-        err.emplace_back((std::string("Exception: ") + e.what()).c_str());
+        err.emplace_back((std::string("Exception: ") + e.what()));
         return err;
     } catch (...) {
         xlog_err("Unknown exception in await_resume for coroutine %d", coro_id_);
         std::vector<VariantType> err;
         err.emplace_back(-1);
-        err.emplace_back("Unknown exception");
+        err.emplace_back(std::string("Unknown exception"));
         return err;
     }
 }

@@ -417,7 +417,7 @@ int main() {
             xlog_info("[Main Thread] System running... frame %d", frame_count);
         }
 
-        //std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         frame_count++;
     }
 
