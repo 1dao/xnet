@@ -134,6 +134,7 @@
     <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="xchannel_pdu.cpp" />
     <ClCompile Include="xhandle.cpp" />
+    <ClCompile Include="xredis.cpp" />
     <ClCompile Include="xrpc.cpp" />
     <ClCompile Include="xlog.c" />
     <ClCompile Include="xthread.cpp" />
@@ -152,6 +153,8 @@
     <ClInclude Include="xlog.h" />
     <ClInclude Include="xmutex.h" />
     <ClInclude Include="xpack.h" />
+    <ClInclude Include="xpack_redis.h" />
+    <ClInclude Include="xredis.h" />
     <ClInclude Include="xrpc.h" />
     <ClInclude Include="xthread.h" />
     <ClInclude Include="xtimer.h" />
