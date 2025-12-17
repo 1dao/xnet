@@ -346,7 +346,7 @@ void test_concurrent_performance() {
                     auto opt_val = xpack_cast_optional<std::string>(get_result, 1);
                     if (opt_val && *opt_val == value) {
                         // 成功计数
-                        completed_tasks.fetch_add(1);
+                        // completed_tasks.fetch_add(1);
                     }
                 }
 
@@ -413,6 +413,11 @@ void test_error_handling() {
     }, nullptr);
 }
 
+
+void subscribe_func(const std::string& channel, const std::string& type, std::vector<VariantType>& resp) {
+    process_redis_result(resp, "Receive publish my_channel result:");
+}
+
 // 主测试函数，按顺序运行所有测试
 void run_all_tests() {
     std::cout << "=== Starting xRedis Client Tests ===" << std::endl;
@@ -424,9 +429,26 @@ void run_all_tests() {
             std::cout << "Redis client connecting." << std::endl;
             co_await coroutine_sleep(500);
         }
+         
+        // 订阅频道
+        auto res = co_await xredis_subscribe("news_channel", [](const std::string& type,
+            const std::string& channel,
+            std::vector<VariantType>& msg) {
+                std::cout << "Received: " << std::get<std::string>(msg[0]) << std::endl;
+            });
 
-        std::cout << "\nWaiting for Redis connections to initialize..." << std::endl;
-        co_await coroutine_sleep(2000); // 等待连接初始化
+        // 模式订阅
+        co_await xredis_subscribe("news_*", [](const std::string& type,
+            const std::string& pattern,
+            std::vector<VariantType>& msg) {
+                std::cout << "Pattern match: " << pattern << std::endl;
+            });
+
+        // 发布消息
+        auto result = co_await xredis_publish("news_channel", "Hello World!");
+
+        // 取消订阅
+        auto pres = co_await xredis_unsubscribe("news_channel");
 
         // 运行各个测试模块
         test_basic_string_operations();
@@ -498,7 +520,7 @@ int main() {
     config.db_index = 1;
     config.use_resp3 = true;
 
-    int init_ret = xredis_init(config, 1); // 使用10个连接
+    int init_ret = xredis_init(config, 10); // 使用10个连接
     if (init_ret != 0) {
         std::cerr << "Failed to initialize Redis pool: " << init_ret << std::endl;
 

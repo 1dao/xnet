@@ -67,10 +67,12 @@ struct xCoroutineLJ {
 
 // Final Awaiter
 struct xFinAwaiter {
+    std_coro::coroutine_handle<> continuation = nullptr;
     int coroutine_id;
-    xFinAwaiter(int id) : coroutine_id(id) {}
+    xFinAwaiter(int id, std_coro::coroutine_handle<> h = {}) : coroutine_id(id), continuation(h) {}
+
     bool await_ready() noexcept { return false; }
-    std_coro::coroutine_handle<> await_suspend(std_coro::coroutine_handle<> h) noexcept;
+    void await_suspend(std_coro::coroutine_handle<> h) noexcept;
     void await_resume() noexcept {}
 };
 
@@ -81,6 +83,7 @@ struct xCoroTask {
         std::exception_ptr exception_ptr = nullptr;
         int hardware_signal = 0;            // 硬件异常信号
         bool exception_handled = false;     // 标记异常是否已处理
+        std_coro::coroutine_handle<> continuation = nullptr;
 
         promise_type() = default;
 
@@ -91,7 +94,7 @@ struct xCoroTask {
         std_coro::suspend_never initial_suspend() { return {}; }
 
         xFinAwaiter final_suspend() noexcept {
-            return xFinAwaiter(coroutine_id);
+            return xFinAwaiter(coroutine_id, continuation);
         }
 
         void unhandled_exception() {
@@ -200,6 +203,27 @@ struct xCoroTask {
     // 安全的恢复方法，支持硬件异常保护
     bool resume_safe(void* param, xCoroutineLJ* lj);
 
+    //bool await_suspend(std_coro::coroutine_handle<> h) noexcept {
+    //    if (handle_) {
+    //        handle_.promise().continuation = h;
+    //    }
+    //    if (has_any_exception()) {
+    //        // 如果有异常，重新抛出它，让调用者可以处理
+    //        std::rethrow_exception(get_promise().exception_ptr);
+    //    }
+    //    return true;
+    //}
+
+    //bool await_ready() const noexcept {
+    //    return done();
+    //}
+
+    //void await_resume() {
+    //    if (has_any_exception()) {
+    //        std::rethrow_exception(get_promise().exception_ptr);
+    //    }
+    //}
+
     promise_type& get_promise() { return handle_.promise(); }
     const promise_type& get_promise() const { return handle_.promise(); }
 
@@ -230,7 +254,8 @@ struct xCoroTaskT {
         std::exception_ptr exception_ptr = nullptr;
         int hardware_signal = 0;
         bool exception_handled = false;
-        std::optional<T> result_value{};  // 存储返回值
+        std::optional<T> result_value{}; 
+        std_coro::coroutine_handle<> continuation = nullptr;
 
         promise_type() = default;
 
@@ -241,7 +266,7 @@ struct xCoroTaskT {
         std_coro::suspend_never initial_suspend() { return {}; }
 
         xFinAwaiter final_suspend() noexcept {
-            return xFinAwaiter(coroutine_id);
+            return xFinAwaiter(coroutine_id, continuation);
         }
 
         void unhandled_exception() {
@@ -374,9 +399,11 @@ struct xCoroTaskT {
         return done();
     }
 
-    void await_suspend(std_coro::coroutine_handle<> h) noexcept {
-        // 可以在这里添加挂起逻辑，如果需要的话
-        // 当前实现中，我们让调用者直接恢复这个协程
+    bool await_suspend(std_coro::coroutine_handle<> h) noexcept {
+        if (handle_) {
+            handle_.promise().continuation = h;
+        }
+        return true;
     }
 
     T await_resume() {

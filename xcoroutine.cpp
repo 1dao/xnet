@@ -409,9 +409,10 @@ public:
         bool resume_safe(void* param) {
             if (is_done()) return false;
 
+            int last = _co_cid;
             _co_cid = coroutine_id;
             bool success = task.resume_safe(param, &lj);
-            _co_cid = -1;
+            _co_cid = last;
             
             if (_co_svs->coroutine_map_.find(coroutine_id) == _co_svs->coroutine_map_.end()) {
                 xlog_debug("Coroutine %d has been removed from coroutine map", coroutine_id);
@@ -516,11 +517,11 @@ public:
             coro = find_coroutine_by_id(id); // 重新获取-防止resume后被删除
             if (!coro) return success;
             if (coro->is_done() || !success) {
-                remove_coroutine(id);
+                // remove_coroutine(id);
             }
             return success;
         }
-        remove_coroutine(id);
+        // remove_coroutine(id);
         return false;
     }
 
@@ -713,21 +714,24 @@ public:
         wait_map_.erase(it);
         return r;
     }
-    };
+};
 
 // ==============================================
 // Awaiter implementation
 // ==============================================
 
-std_coro::coroutine_handle<> xFinAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
+void xFinAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
     if (_co_svs && coroutine_id > 0) {
-        _co_svs->remove_coroutine(coroutine_id);
+        if (continuation) {
+            // 子协程。恢复父协程。
+            continuation.resume();
+        } else {
+            // 顶层协程。自我清理。
+            _co_svs->remove_coroutine(coroutine_id);
+        }
+    } else if(continuation) {
+        continuation.resume();
     }
-#if defined(__APPLE__) || (defined(__clang__) && __clang_major__ < 12)
-    return std_coro::noop_coroutine();
-#else
-    return std_coro::noop_coroutine();
-#endif
 }
 
 xAwaiter::xAwaiter()

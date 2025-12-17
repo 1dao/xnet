@@ -202,8 +202,7 @@ std::optional<T> xpack_cast_optional(const std::vector<VariantType>& vec, size_t
     try {
         VariantType& var = const_cast<VariantType&>(vec[index]);
         return xpack_cast<T>(var);
-    }
-    catch (...) {
+    } catch (...) {
         return std::nullopt;
     }
 }

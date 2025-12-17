@@ -32,6 +32,12 @@ xAwaiter xredis_hset(const std::string& key, const std::string& field, const std
 xAwaiter xredis_hget(const std::string& key, const std::string& field);
 xAwaiter xredis_hgetall(const std::string& key);
 
+// Redis pub/sub
+typedef void (*RedisSubscribeCallback)(const std::string& type, const std::string& channel, std::vector<VariantType>& resp);
+xCoroTaskT<int> xredis_subscribe(const std::string& channel, RedisSubscribeCallback fnCallback);
+xCoroTaskT<int> xredis_unsubscribe(const std::string& channel);
+xAwaiter xredis_publish(const std::string& channel, const std::string& message);
+
 // 通用命令接口
 xAwaiter xredis_command(const std::vector<std::string>& args);
 
