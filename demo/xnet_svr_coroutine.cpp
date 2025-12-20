@@ -134,7 +134,7 @@ int on_close(struct xChannel* s, char* data, int len) {
 // 信号处理函数
 void signal_handler(int sig) {
     xlog_warn("收到信号 %d，正在关闭应用...", sig);
-    xlog_safe_close();
+    xlog_uninit();
     exit(0);
 }
 

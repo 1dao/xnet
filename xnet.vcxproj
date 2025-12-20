@@ -126,6 +126,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="3rd\picohttpparser.c" />
     <ClCompile Include="ae.c" />
     <ClCompile Include="xchannel.cpp" />
     <ClCompile Include="anet.c">
@@ -134,6 +135,7 @@
     <ClCompile Include="xcoroutine.cpp" />
     <ClCompile Include="xchannel_pdu.cpp" />
     <ClCompile Include="xhandle.cpp" />
+    <ClCompile Include="xhttpd.cpp" />
     <ClCompile Include="xredis.cpp" />
     <ClCompile Include="xrpc.cpp" />
     <ClCompile Include="xlog.c" />
@@ -142,7 +144,9 @@
     <ClCompile Include="zmalloc.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="3rd\picohttpparser.h" />
     <ClInclude Include="ae.h" />
+    <ClInclude Include="xhttpd.h" />
     <ClInclude Include="xqueue.h" />
     <ClInclude Include="xchannel.h" />
     <ClInclude Include="anet.h" />

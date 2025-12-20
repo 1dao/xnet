@@ -35,7 +35,7 @@ const PacketOps* _xchannel_get_ops(xChannel* channel);
     */
 static inline xChannelErrCode _xchannel_check_complete(xChannel* channel) {
     const PacketOps* ops = _xchannel_get_ops(channel);
-    return ops && ops->check_complete ? ops->check_complete(channel) : PACKET_INVALID;
+    return ops && ops->check_complete ? ops->check_complete(channel) : PACKET_SUCCESS; // default check when on pack
 }
 
 /**

@@ -52,6 +52,8 @@ size_t coroutine_get_active_count();
 int coroutine_self_id();
 void coroutine_set_stacktrace_mode(int mode);
 xAwaiter coroutine_sleep(int time_ms);
+bool coroutine_cancel(int coroutine_id);
+bool coroutine_valid(int coroutine_id);
 
 // Hardware exception protection structure
 struct xCoroutineLJ {
@@ -69,7 +71,7 @@ struct xCoroutineLJ {
 struct xFinAwaiter {
     std_coro::coroutine_handle<> continuation = nullptr;
     int coroutine_id;
-    xFinAwaiter(int id, std_coro::coroutine_handle<> h = {}) : coroutine_id(id), continuation(h) {}
+    xFinAwaiter(int id, std_coro::coroutine_handle<> h = nullptr) : coroutine_id(id), continuation(h) {}
 
     bool await_ready() noexcept { return false; }
     void await_suspend(std_coro::coroutine_handle<> h) noexcept;

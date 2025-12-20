@@ -34,7 +34,7 @@ static int       xlog_show_thread_name = 0;
 #define XLOG_COLOR_CYAN    "\033[36m"
 #define XLOG_COLOR_RESET   "\033[0m"
 
-#define LOGLOG_SIZE 1024
+#define LOGLOG_SIZE 1024*5
 
 static inline void xlog_init_mutex(void) {
     if (!xlog_inited) {

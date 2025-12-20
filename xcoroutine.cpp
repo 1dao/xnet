@@ -8,6 +8,7 @@
 
 #include "xmutex.h"
 #include "xlog.h"
+#include "xerrno.h"
 
 // 包含堆栈跟踪实现
 #include "xtraceback.inl"
@@ -391,6 +392,7 @@ public:
         xCoroTask task;
         int coroutine_id;
         xCoroutineLJ lj;  // Hardware exception protection context
+        bool killed = false;
 
         xCoro(xCoroTask&& t, int id) : task(std::move(t)), coroutine_id(id) {
             task.get_promise().coroutine_id = id;
@@ -638,7 +640,16 @@ public:
             p.handle = h;
             p.coro_id = coro_id;
             p.timer = nullptr;
-            if (p.done && p.result) {
+
+            xCoro* target = find_coroutine_by_id(coro_id);
+            if (target && target->killed) {
+                auto err = std::make_unique<std::vector<VariantType>>();
+                err->push_back(VariantType(XNET_CORO_KILLED));
+                p.result = std::move(err);
+                p.done = true;
+                to_resume = p.handle;
+                resume_coro_id = p.coro_id;
+            } else if (p.done && p.result) {
                 to_resume = p.handle;
                 resume_coro_id = p.coro_id;
             } else if(timeout > 0) {
@@ -704,6 +715,44 @@ public:
         if (to_resume) {
             resume_with_hw_protection(to_resume, resume_coro_id, "resume_waiter");
         }
+    }
+
+    bool cancel(int coroutine_id) {
+        xCoroService::xCoro* coro = find_coroutine_by_id(coroutine_id);
+        if (!coro) return false;
+        if (coro->killed) return false;
+        coro->killed = true;
+
+        // 唤醒同一协程下的所有 waiter
+        std_coro::coroutine_handle<> to_resume = nullptr;
+        int resume_coro_id = -1;
+        {
+            XMutexGuard lock(&_co_svs->wait_mutex);
+            for (auto& kv : _co_svs->wait_map_) {
+                auto& p = kv.second;
+                if (!p.done && p.coro_id == coroutine_id) {
+                    auto err = std::make_unique<std::vector<VariantType>>();
+                    err->push_back(VariantType(XNET_CORO_KILLED));
+                    p.result = std::move(err);
+                    p.done = true;
+                    if (p.handle) {
+                        to_resume = p.handle;
+                        resume_coro_id = p.coro_id;
+                    }
+                }
+            }
+        }
+        if (to_resume) {
+            _co_svs->resume_with_hw_protection(to_resume, resume_coro_id, "kill");
+        }
+
+        // 如果协程当前非运行并且没有 handle 被挂起，不能强制销毁——只标记
+        return true;
+    }
+
+    bool is_valid(int coroutine_id) {
+        xCoroService::xCoro* coro = find_coroutine_by_id(coroutine_id);
+        return coro != nullptr && !coro->killed;
     }
 
     std::vector<VariantType> take_wait_result(uint32_t wait_id) {
@@ -860,6 +909,16 @@ bool coroutine_resume(uint32_t wait_id, std::vector<VariantType> && resp) {
     if (!_co_svs) return false;
     _co_svs->resume_waiter(wait_id, std::move(resp));
     return true;
+}
+
+bool coroutine_cancel(int id) {
+    if (!_co_svs) return false;
+    return _co_svs->cancel(id);
+}
+
+bool coroutine_valid(int coroutine_id) {
+    if(coroutine_id==0) coroutine_id = coroutine_self_id();
+    return _co_svs ? _co_svs->is_valid(coroutine_id) : false;
 }
 
 void coroutine_set_stacktrace_mode(int mode) {

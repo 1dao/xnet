@@ -56,7 +56,9 @@ static xChannel* create_channel(xSocket fd, void* userdata) {
     channel->rlen = CHANNEL_BUFF_MAX;
     channel->wlen = CHANNEL_BUFF_MAX;
     channel->userdata = userdata;
-
+    memset(channel->rbuf, 0, CHANNEL_BUFF_MAX);
+    memset(channel->wbuf, 0, CHANNEL_BUFF_MAX);
+    channel->closing = 0;
     return channel;
 }
 
@@ -137,9 +139,11 @@ static int on_data(channel_context_t* ctx) {
     for (int i = 0; i < 10; i++) {
         hdr_len = _xchannel_read_header(s, &pkg_len);
         if (hdr_len < 0) return hdr_len == PACKET_INCOMPLETE ? AE_OK: AE_ERR;
+        if (hdr_len==0 && pkg_len == 0) pkg_len = (int)(s->rpos - s->rbuf); // for custom protocal,check when on pack
         if (pkg_len <= 0) return AE_ERR;
 
         int processed = ctx->fpack(s, s->rbuf+ hdr_len, (int)(pkg_len));
+        if (!ctx->channel) return AE_ERR;
         if (processed > 0) {
             processed = (int)(hdr_len + pkg_len);
             int remaining = (int)(s->rpos - s->rbuf) - processed;
@@ -243,6 +247,7 @@ inline static int aePostIocpWrite(xSocket socket, OVERLAPPED* overlapped) {
             return -1;
         }
     }
+    xlog_debug("send %d bytes to %d content:%s", bytesSent, socket, std::string(s->wbuf, (s->wpos - s->wbuf)).c_str());
     return 0;
 }
 #endif
@@ -252,6 +257,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
     if (!ctx || !ctx->channel) return AE_ERR;
 
     xChannel* s = ctx->channel;
+    aeFileEvent* ev = s->ev;
     xSocket fd = s->fd;
 #ifndef HAVE_IOCP
     int available = s->rlen - (s->rpos - s->rbuf);
@@ -277,11 +283,13 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
     if (trans > 0)
         s->rpos += trans;
     if (on_data(ctx) == AE_ERR || trans==0) {
-        xchannel_close(s);
+        xchannel_close(ctx->channel);
         return AE_ERR;
     }
 #ifdef HAVE_IOCP
-    aePostIocpRead(fd, &ctx->rop);
+    if (ev && ev->clientData == ctx) {
+        aePostIocpRead(fd, &ctx->rop);
+    }
 #endif
     return AE_OK;
 }
@@ -573,18 +581,42 @@ int xchannel_rawsend(xChannel* s, const char* buf, int len) {
     return xchannel_post(s, len);
 }
 
+int xchannel_sbuf(xChannel* s, const char* buf, int len) {
+    if (!s || !s->wbuf) return 0;
+
+    int remain = s->wlen - (int)(s->wpos - s->wbuf);
+    if (remain < len) {
+        printf("Send buffer full, fd: %d\n", (int)s->fd);
+        return 0;
+    }
+    memcpy(s->wpos, buf, len);
+    s->wpos += len;
+    return len;
+}
+
+int xchannel_flush(xChannel* s) {
+    if (!s || !s->wbuf) return 0;
+
+    int len = (int)(s->wpos - s->wbuf);
+    if (len <= 0) return 0;
+    return xchannel_post(s, len);
+}
+
 int xchannel_close(struct xChannel* s) {
     if (!s) return AE_ERR;
+    // 幂等关闭：如果正在或已关闭，立即返回
+    if (s->closing) return AE_OK;
+    s->closing = 1;
     printf("Closing channel, fd: %d\n", (int)s->fd);
 
     aeFileEvent* ev = s->ev;
     aeEventLoop* el = aeGetCurEventLoop();
     if (el && ev && (AE_READABLE&ev->mask)) {
         channel_context_t* ctx = (channel_context_t*)ev->clientData;
+        ev->clientData = NULL;
         aeDeleteFileEvent(el, s->fd, ev, AE_READABLE);
         aeDeleteFileEvent(el, s->fd, ev, AE_WRITABLE);
         ctx->fclose(s, NULL, 0);
-
         if (ctx) {
             free_channel_context(ctx);
             anetCloseSocket(s->fd);

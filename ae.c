@@ -316,21 +316,19 @@ int aeWait(xSocket fd, int mask, long long milliseconds) {
     fd_set rfds, wfds, efds;
     int retmask = 0, retval;
 
-     tv.tv_sec = (long)milliseconds / 1000;
-     tv.tv_usec = (long)(milliseconds % 1000) * 1000;
-     FD_ZERO(&rfds);
+    tv.tv_sec = (long)milliseconds / 1000;
+    tv.tv_usec = (long)(milliseconds % 1000) * 1000;
+    FD_ZERO(&rfds);
     FD_ZERO(&wfds);
     FD_ZERO(&efds);
 
-        if (mask & AE_READABLE) FD_SET(fd, &rfds);
+    if (mask & AE_READABLE) FD_SET(fd, &rfds);
     if (mask & AE_WRITABLE) FD_SET(fd, &wfds);
     if ((retval = select((int)fd + 1, &rfds, &wfds, &efds, &tv)) > 0) {
         if (FD_ISSET(fd, &rfds)) retmask |= AE_READABLE;
         if (FD_ISSET(fd, &wfds)) retmask |= AE_WRITABLE;
         return retmask;
-
-    }
-    else {
+    } else {
         return retval;
     }
 }

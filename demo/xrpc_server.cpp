@@ -1,4 +1,4 @@
-#include "ae.h"
+﻿#include "ae.h"
 #include "xchannel.h"
 #include "xpack.h"
 #include "xcoroutine.h"
@@ -71,8 +71,7 @@ void pack_handles_reg() {
     xlog_info("Registered %d RPC handlers", 3);
 }
 
-// 服务器主循环
-void server_main() {
+int main() {
     aeEventLoop* el = aeCreateEventLoop(100);
     if (!el) {
         std::cerr << "Failed to create event loop" << std::endl;
@@ -97,9 +96,5 @@ void server_main() {
     aeMain(el);
 
     coroutine_uninit();
-}
-
-int main() {
-    server_main();
     return 0;
 }

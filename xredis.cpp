@@ -602,7 +602,7 @@ xAwaiter xredis_command(const std::vector<std::string>& args) {
     if (!conn){
         int retry = 5;
         while (!conn) {
-            coroutine_sleep(100);
+            // co_await coroutine_sleep(100);
             conn = fetch_free_conn();
             if ((--retry) == 0) break;
         }
@@ -810,7 +810,7 @@ xCoroTaskT<int> xredis_subscribe(const std::string& channel_or_pattern, RedisSub
     }
 
     if (!to_unsubscribe.empty()) {
-        coroutine_sleep(100);
+        co_await coroutine_sleep(100);
     }
 
     // 5. 创建新的服务器订阅

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PAC Manager</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 500px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+            opacity: 0.8;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #555;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .message {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+            display: none;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .links {
+            margin-top: 30px;
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        
+        .links a {
+            color: #667eea;
+            text-decoration: none;
+            margin: 0 10px;
+            font-size: 0.9em;
+        }
+        
+        .links a:hover {
+            text-decoration: underline;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #999;
+            font-size: 0.9em;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 30px 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐PAC Manager</h1>
+            <p>Secure Proxy Auto-Configuration Management</p>
+        </div>
+        
+        <div id="message" class="message"></div>
+        
+        <form id="pacForm" method="POST" action="/add-domain">
+            <div class="form-group">
+                <label for="password">Access Password</label>
+                <input type="password" id="password" name="password" 
+                       class="form-control" placeholder="Enter your password" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="domain">Domain to Add</label>
+                <input type="text" id="domain" name="domain" 
+                       class="form-control" placeholder="example.com" required>
+                <small style="color: #777; margin-top: 5px; display: block;">
+                    Enter domain (e.g., example.com) - will add both domain and *.domain
+                </small>
+            </div>
+            
+            <button type="submit" class="btn">Add Domain to PAC</button>
+        </form>
+        
+        <div class="links">
+            <a href="/proxy.pac" target="_blank">View proxy.pac</a>
+            <a href="/proxy1081.pac" target="_blank">View proxy1081.pac</a>
+            <a href="/proxy.all.pac" target="_blank">View proxy.all.pac</a>
+        </div>
+        
+        <div class="footer">
+            <p>Server Time: {TIME} | Connections: {CONNECTIONS}</p>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('pacForm').onsubmit = async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const btn = this.querySelector('.btn');
+            const originalText = btn.textContent;
+            
+            btn.textContent = 'Processing...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/add-domain', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const messageEl = document.getElementById('message');
+                
+                if (response.ok) {
+                    messageEl.textContent = '✅ Domain added successfully!';
+                    messageEl.className = 'message success';
+                    messageEl.style.display = 'block';
+                    this.reset();
+                } else {
+                    const error = await response.text();
+                    messageEl.textContent = '❌ Error: ' + error;
+                    messageEl.className = 'message error';
+                    messageEl.style.display = 'block';
+                }
+            } catch (error) {
+                document.getElementById('message').textContent = 
+                    '❌ Network error: ' + error.message;
+                document.getElementById('message').className = 'message error';
+                document.getElementById('message').style.display = 'block';
+            }
+            
+            btn.textContent = originalText;
+            btn.disabled = false;
+        };
+    </script>
+</body>
+</html>

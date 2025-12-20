@@ -11,6 +11,7 @@ typedef enum xProto {
     xproto_blp4        = 1,  // 4字节长度字段
     xproto_crlf_resp2  = 2,  // crlf-redis-resp2协议
     xproto_crlf_resp3  = 3,  // crlf-redis-resp3协议
+    xrpoto_crlf_http1  = 4,  // crlf-http-1.1协议
     xproto_max               // 协议数量
 } xProto;
 
@@ -32,6 +33,7 @@ typedef struct xChannel {
     uint32_t pk_id;
     uint32_t co_id;
     uint32_t pt;
+    uint8_t  closing;       // 关闭中标记，避免重复关闭
 } xChannel;
 
 typedef int xchannel_proc(struct xChannel* s, char* buf, int len);
@@ -41,6 +43,8 @@ xChannel*   xchannel_conn(char* addr, int port, xchannel_proc* on_pack, xchannel
 int         xchannel_listen(int port, char* bindaddr, xchannel_proc* proc, xchannel_proc* on_close, void* userdata, xProto proto = xProto::xproto_blp4);
 int         xchannel_send(struct xChannel* s, const char* buf, int len);
 int         xchannel_rawsend(struct xChannel* s, const char* buf, int len);
+int         xchannel_sbuf(xChannel* s, const char* buf, int len);
+int         xchannel_flush(xChannel* s);
 int         xchannel_close(struct xChannel* s);
 
 #endif
