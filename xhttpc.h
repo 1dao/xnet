@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#ifndef _WIN32
+#define u8 ""
+#endif
 
 /**
  * @brief HTTP 客户端错误码

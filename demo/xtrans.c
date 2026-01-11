@@ -1,6 +1,7 @@
 ﻿#include "xhttpc.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>   // 解决 malloc/free 隐式声明
 #include <ctype.h>    // 解决 isalnum 未定义警告
 #include <wchar.h>    // 宽字符相关
 #include <locale.h>   // setlocale 所需
@@ -47,188 +48,20 @@ static int is_chinese_string(const char* str) {
     return 0;
 }
 
-static size_t url_encode(const char* src, char* dst, size_t dst_len) {
-    if (src == NULL || dst == NULL || dst_len == 0) return 0;
-    const char* hex = "0123456789ABCDEF";
-    size_t i = 0, j = 0;
-    while (src[i] != '\0' && j < dst_len - 1) {
-        if (isalnum(src[i]) || src[i] == '-' || src[i] == '_' || src[i] == '.' || src[i] == '~') {
-            dst[j++] = src[i];
-        } else {
-            if (j + 3 > dst_len - 1) break; // 预留%XX的空间
-            dst[j++] = '%';
-            dst[j++] = hex[(src[i] >> 4) & 0x0F];
-            dst[j++] = hex[src[i] & 0x0F];
-        }
-        i++;
-    }
-    dst[j] = '\0';
-    return j;
-}
-
-static size_t wchar_to_utf8(wchar_t wc, char* utf8_buf, size_t buf_len) {
-    if (utf8_buf == NULL || buf_len == 0) return 0;
-
-    // ASCII 字符
-    if (wc <= 0x7F) {
-        if (buf_len < 2) return 0;
-        utf8_buf[0] = (char)wc;
-        utf8_buf[1] = '\0';
-        return 1;
-    }
-    // 2 字节 UTF-8
-    else if (wc <= 0x7FF) {
-        if (buf_len < 3) return 0;
-        utf8_buf[0] = 0xC0 | ((wc >> 6) & 0x1F);
-        utf8_buf[1] = 0x80 | (wc & 0x3F);
-        utf8_buf[2] = '\0';
-        return 2;
-    }
-    // 3 字节 UTF-8（覆盖大部分中文）
-    else if (wc <= 0xFFFF) {
-        if (buf_len < 4) return 0;
-        utf8_buf[0] = 0xE0 | ((wc >> 12) & 0x0F);
-        utf8_buf[1] = 0x80 | ((wc >> 6) & 0x3F);
-        utf8_buf[2] = 0x80 | (wc & 0x3F);
-        utf8_buf[3] = '\0';
-        return 3;
-    }
-    // 4 字节 UTF-8（极少用）
-    else if (wc <= 0x10FFFF) {
-        if (buf_len < 5) return 0;
-        utf8_buf[0] = 0xF0 | ((wc >> 18) & 0x07);
-        utf8_buf[1] = 0x80 | ((wc >> 12) & 0x3F);
-        utf8_buf[2] = 0x80 | ((wc >> 6) & 0x3F);
-        utf8_buf[3] = 0x80 | (wc & 0x3F);
-        utf8_buf[4] = '\0';
-        return 4;
-    }
-    return 0;
-}
-
-// 支持中文的 URL 编码（输入：宽字符字符串；输出：URL 编码后的 char*）
-static size_t url_encode_utf8(const wchar_t* src_w, char* dst, size_t dst_len) {
-    if (src_w == NULL || dst == NULL || dst_len == 0) return 0;
-    const char* hex = "0123456789ABCDEF";
-    size_t j = 0; // 目标缓冲区索引
-    char utf8_buf[5] = { 0 }; // 存储单个宽字符的 UTF-8 编码
-
-    while (*src_w != L'\0' && j < dst_len - 1) {
-        // 步骤1：将宽字符转换为 UTF-8 多字节
-        size_t utf8_len = wchar_to_utf8(*src_w, utf8_buf, sizeof(utf8_buf));
-        if (utf8_len == 0) {
-            src_w++;
-            continue;
-        }
-
-        // 步骤2：对 UTF-8 每个字节做 URL 转义
-        for (size_t k = 0; k < utf8_len; k++) {
-            unsigned char c = (unsigned char)utf8_buf[k];
-            // 安全字符：字母、数字、- _ . ~
-            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-                if (j >= dst_len - 1) break;
-                dst[j++] = c;
-            } else {
-                // 非安全字符：%XX 转义（需预留 3 个字节空间）
-                if (j + 3 > dst_len - 1) break;
-                dst[j++] = '%';
-                dst[j++] = hex[(c >> 4) & 0x0F];
-                dst[j++] = hex[c & 0x0F];
-            }
-        }
-        src_w++;
-    }
-
-    dst[j] = '\0'; // 字符串终止符
-    return j;
-}
-
-// 兼容原始 char* 输入的封装（需确保输入是 UTF-8 编码）
-static size_t url_encode_compat(const char* src, char* dst, size_t dst_len) {
-    if (src == NULL || dst == NULL || dst_len == 0) return 0;
-    // 初始化本地化（确保宽字符转换正常）
-    setlocale(LC_ALL, "zh_CN.UTF-8");
-
-    // 步骤1：char* (UTF-8) 转 wchar_t
-    size_t src_len = strlen(src);
-    wchar_t* src_w = (wchar_t*)malloc((src_len + 1) * sizeof(wchar_t));
-    if (src_w == NULL) return 0;
-    mbstowcs(src_w, src, src_len + 1);
-
-    // 步骤2：调用宽字符版 URL 编码
-    size_t ret = url_encode_utf8(src_w, dst, dst_len);
-
-    // 清理
-    free(src_w);
-    return ret;
-}
-
 static int parse_bing_translate(const char* resp, char* result, size_t result_len) {
     if (resp == NULL || result == NULL || result_len == 0) return 0;
     memset(result, 0, result_len);
 
-    // ===================== 第一步：优先从 meta description 提取（最稳定） =====================
-    const char* meta_desc_start = "<meta name=\"description\" content=\"";
-    const char* meta_desc_end = "\" />";
-    char* desc_start = strstr(resp, meta_desc_start);
-    if (desc_start != NULL) {
-        desc_start += (strlen(meta_desc_start)); // 跳过起始标签
-        const char* desc_end = strstr(desc_start, meta_desc_end);
-        if (desc_end != NULL) {
-            // 截取 meta description 内容
-            char desc_buf[1024] = { 0 };
-            size_t desc_len = desc_end - desc_start;
-            if (desc_len > sizeof(desc_buf) - 1) desc_len = sizeof(desc_buf) - 1;
-            strncpy(desc_buf, desc_start, desc_len);
-
-            // ========== 解析 description 中的翻译结果 ==========
-            // 场景1：英文→中文（格式：hello的释义，美/英音标，int. 你好；喂；...；网络释义：...）
-            const char* zh_tag = "int. "; // 英文词性标记（int./n./v.等）
-            const char* zh_start = strstr(desc_buf, zh_tag);
-            if (zh_start != NULL) {
-                zh_start += strlen(zh_tag);
-                // 截取到「；网络释义：」前（中文翻译核心区）
-                const char* zh_end = strstr(zh_start, u8"；网络释义：");
-                if (zh_end == NULL) zh_end = strstr(zh_start, u8"; 网络释义："); // 兼容半角分号
-                if (zh_end != NULL) {
-                    size_t ret_len = zh_end - zh_start;
-                    if (ret_len > result_len - 1) ret_len = result_len - 1;
-                    strncpy(result, zh_start, ret_len);
-                    return 1;
-                }
-            }
-
-            // 场景2：中文→英文（格式：你好的释义，英/美音标，n. Hello；Hi；...；网络释义：...）
-            const char* en_tag = "n. "; // 中文译英文的词性标记（n./v./int.等）
-            const char* en_start = strstr(desc_buf, en_tag);
-            if (en_start != NULL) {
-                en_start += strlen(en_tag);
-                // 截取到「；网络释义：」前（英文翻译核心区）
-                const char* en_end = strstr(en_start, u8"；网络释义：");
-                if (en_end == NULL) en_end = strstr(en_start, u8"; 网络释义：");
-                if (en_end != NULL) {
-                    size_t ret_len = en_end - en_start;
-                    if (ret_len > result_len - 1) ret_len = result_len - 1;
-                    strncpy(result, en_start, ret_len);
-                    return 1;
-                }
-            }
-        }
-    }
-
-    // ===================== 第二步：兜底从正文「网络释义」提取 =====================
     const char* web_def_start = "<meta name=\"description\" content=\"";
     const char* web_start = strstr(resp, web_def_start);
     if (web_start != NULL) {
         web_start += strlen(web_def_start);
-        const char* web_end = strstr(web_start, "；");
-        if (web_end == NULL) web_end = strstr(web_start, "\" \/>"); // 到下一个HTML标签截止
-        if (web_end != NULL) {
-            size_t web_len = web_end - web_start;
-            if (web_len > result_len - 1) web_len = result_len - 1;
-            strncpy(result, web_start, web_len);
-            return 1;
-        }
+        const char* web_end = strstr(web_start, "\" />"); // 到下一个HTML标签截止
+        if (web_end == NULL) web_end = strlen(resp)+resp; // 到下一个HTML标签截止
+        size_t web_len = web_end - web_start;
+        if (web_len > result_len - 1) web_len = result_len - 1;
+        strncpy(result, web_start, web_len);
+        return 1;
     }
 
     return 0; // 解析失败
@@ -406,7 +239,11 @@ httpc_err_t httpc_translate(const char* ca_file, const char* text, char* result,
     int is_zh = is_chinese_string(utf8_buf);
     char req_url[1024] = { 0 };
     char encoded_text[512] = { 0 };
-    url_encode_compat(utf8_buf, encoded_text, sizeof(encoded_text));
+    int encoded_len = httpc_url_encode(utf8_buf, encoded_text, sizeof(encoded_text));
+    if (encoded_len < 0) {
+        fprintf(stderr, u8"URL 编码失败\n");
+        return HTTPC_ERR_PARAM;
+    }
 
     // 4. 构造必应词典请求URL
     // 必应词典接口说明：q=关键词，mkt=zh-CN（地区），setlang=目标语言
