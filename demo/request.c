@@ -1,4 +1,4 @@
-﻿/*This is a simple REDIS-PROTOCOL Parser using DFA(Deterministic finite-state machine,
+/*This is a simple REDIS-PROTOCOL Parser using DFA(Deterministic finite-state machine,
   http://en.wikipedia.org/wiki/Deterministic_finite-state_machine)
   * nessDB will use this parser to support Redis-Protocol
   *

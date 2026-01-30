@@ -1,4 +1,4 @@
-﻿#ifndef _XHTTPD_H
+#ifndef _XHTTPD_H
 #define _XHTTPD_H
 
 #include "ae.h"

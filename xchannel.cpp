@@ -1,4 +1,4 @@
-﻿// ae_channel.c
+// ae_channel.c
 #include "ae.h"
 #include "anet.h"
 #include "zmalloc.h"
@@ -22,6 +22,9 @@
 #include "xrpc.h"
 
 #include "xhandle.h"
+#include <cassert>
+
+#define xassert assert
 
 #define CHANNEL_BUFF_MAX (2*1024*1024)
 
@@ -65,7 +68,7 @@ static xChannel* create_channel(xSocket fd, void* userdata) {
 static void free_channel(xChannel* channel) {
     if (!channel) return;
 
-    if (channel->fd != -1) {
+    if (channel->fd != (xSocket)-1) {
         anetCloseSocket(channel->fd);
         channel->fd = -1;
     }
@@ -130,15 +133,14 @@ static void free_channel_context(channel_context_t* ctx) {
 }
 
 static int on_data(channel_context_t* ctx) {
-    if (!ctx || !ctx->channel) return AE_ERR;
-
     xChannel* s = ctx->channel;
-	aeEventLoop* el = aeGetCurEventLoop();
-	size_t pkg_len = 0, hdr_len = 0;
-    bool is_rpc = false;
+    assert(s);
+
+    size_t pkg_len = 0;
+    int hdr_len = 0;
     for (int i = 0; i < 10; i++) {
         hdr_len = _xchannel_read_header(s, &pkg_len);
-        if (hdr_len < 0) return hdr_len == PACKET_INCOMPLETE ? AE_OK: AE_ERR;
+        if (hdr_len < 0) return hdr_len == (int)PACKET_INCOMPLETE ? AE_OK: AE_ERR;
         if (hdr_len==0 && pkg_len == 0) pkg_len = (int)(s->rpos - s->rbuf); // for custom protocal,check when on pack
         if (pkg_len <= 0) return AE_ERR;
 
@@ -253,6 +255,7 @@ inline static int aePostIocpWrite(xSocket socket, OVERLAPPED* overlapped) {
 #endif
 
 int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int trans) {
+    (void)eventLoop; (void)mask;
     channel_context_t* ctx = (channel_context_t*)client_data;
     if (!ctx || !ctx->channel) return AE_ERR;
 
@@ -295,6 +298,7 @@ int aeProcRead(struct aeEventLoop* eventLoop, void* client_data, int mask, int t
 }
 
 int aeProcWrite(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, int mask, int trans) {
+    (void)mask;
     channel_context_t* ctx = (channel_context_t*)client_data;
     if (!ctx || !ctx->channel) return AE_ERR;
 
@@ -354,6 +358,7 @@ int aeProcEvent(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, in
 }
 
 int aeProcAccept(struct aeEventLoop* eventLoop, xSocket fd, void* client_data, int mask, int trans) {
+    (void)mask; (void)trans;
     channel_context_t* cur = (channel_context_t*)client_data;
     if (!cur) return AE_ERR;
 	fd = cur->channel->fd;
@@ -440,7 +445,7 @@ int xchannel_listen(int port, char* bindaddr, xchannel_proc* fpack, xchannel_pro
 
     char err[ANET_ERR_LEN];
     xSocket fd = anetTcpServer(err, port, bindaddr);
-    if (fd == ANET_ERR) {
+    if (fd == (xSocket)ANET_ERR) {
         printf("Create TCP server error: %s\n", err);
         return AE_ERR;
     }
@@ -482,7 +487,7 @@ xChannel* xchannel_conn(char* addr, int port, xchannel_proc* fpack, xchannel_pro
 
     char err[ANET_ERR_LEN];
     xSocket fd = anetTcpConnect(err, addr, port);
-    if (fd == ANET_ERR) {
+    if (fd == (xSocket)ANET_ERR) {
         printf("Connect to %s:%d error: %s\n", addr, port, err);
         return NULL;
     }

@@ -1,4 +1,4 @@
-﻿#ifndef _REQUEST_H
+#ifndef _REQUEST_H
 #define _REQUEST_H
 
 #ifdef __cplusplus

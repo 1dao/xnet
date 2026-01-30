@@ -1,4 +1,4 @@
-﻿#include "ae.h"
+#include "ae.h"
 #include "xchannel.h"
 #include "xpack.h"
 #include "xcoroutine.h"
@@ -75,19 +75,19 @@ int main() {
     aeEventLoop* el = aeCreateEventLoop(100);
     if (!el) {
         std::cerr << "Failed to create event loop" << std::endl;
-        return;
+        return -1;
     }
 
     if (!coroutine_init()) {
         std::cerr << "Failed to initialize coroutine manager" << std::endl;
-        return;
+        return -1;
     }
 
     xlog_info("Starting RPC server on port 8888...");
 
     if (xchannel_listen(8888, (char*)"127.0.0.1", NULL, sock_on_closed, nullptr) == AE_ERR) {
         std::cerr << "Failed to start server" << std::endl;
-        return;
+        return -1;
     }
 
     pack_handles_reg();

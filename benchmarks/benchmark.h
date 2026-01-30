@@ -1,4 +1,4 @@
-﻿#ifndef BENCHMARK_H
+#ifndef BENCHMARK_H
 #define BENCHMARK_H
 
 #include <stddef.h>

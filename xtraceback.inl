@@ -1,4 +1,4 @@
-﻿// xtraceback.inl - 跨平台堆栈跟踪实现
+// xtraceback.inl - 跨平台堆栈跟踪实现
 #ifndef XTRACEBACK_INL
 #define XTRACEBACK_INL
 
@@ -17,7 +17,9 @@
     #include <windows.h>
     #include <dbghelp.h>
     #include <atomic>
+    #ifdef _MSC_VER
     #pragma comment(lib, "dbghelp.lib")
+    #endif
 #elif defined(__APPLE__)
     #define XCORO_PLATFORM_WINDOWS 0
     #define XCORO_PLATFORM_UNIX 1
@@ -801,17 +803,17 @@ static inline const char* xtraceback_sig_name(int sig) {
         case SIGTRAP: return "SIGTRAP";
 #endif
 #if XCORO_PLATFORM_WINDOWS
-        case 0xC0000005: return "EXCEPTION_ACCESS_VIOLATION";
-        case 0xC0000094: return "EXCEPTION_INT_DIVIDE_BY_ZERO";
-        case 0xC00000FD: return "EXCEPTION_STACK_OVERFLOW";
-        case 0xC0000374: return "STATUS_HEAP_CORRUPTION";
-        case 0xC0000409: return "STATUS_STACK_BUFFER_OVERRUN";
-        case 0xE06D7363: return "CPP_EH_EXCEPTION";
-        case 0xC000008E: return "EXCEPTION_FLT_DIVIDE_BY_ZERO";
-        case 0xC0000090: return "EXCEPTION_FLT_INVALID_OPERATION";
-        case 0xC0000091: return "EXCEPTION_FLT_OVERFLOW";
-        case 0xC0000092: return "EXCEPTION_FLT_UNDERFLOW";
-        case 0xC0000093: return "EXCEPTION_FLT_INEXACT_RESULT";
+        case (int)0xC0000005: return "EXCEPTION_ACCESS_VIOLATION";
+        case (int)0xC0000094: return "EXCEPTION_INT_DIVIDE_BY_ZERO";
+        case (int)0xC00000FD: return "EXCEPTION_STACK_OVERFLOW";
+        case (int)0xC0000374: return "STATUS_HEAP_CORRUPTION";
+        case (int)0xC0000409: return "STATUS_STACK_BUFFER_OVERRUN";
+        case (int)0xE06D7363: return "CPP_EH_EXCEPTION";
+        case (int)0xC000008E: return "EXCEPTION_FLT_DIVIDE_BY_ZERO";
+        case (int)0xC0000090: return "EXCEPTION_FLT_INVALID_OPERATION";
+        case (int)0xC0000091: return "EXCEPTION_FLT_OVERFLOW";
+        case (int)0xC0000092: return "EXCEPTION_FLT_UNDERFLOW";
+        case (int)0xC0000093: return "EXCEPTION_FLT_INEXACT_RESULT";
 #endif
         default: return "Unknown";
     }
@@ -819,6 +821,7 @@ static inline const char* xtraceback_sig_name(int sig) {
 
 // 获取信号描述
 static inline const char* xtraceback_get_sig_desc(int sig, int si_code) {
+    (void)sig; (void)si_code;
 #if XCORO_PLATFORM_UNIX
     if (sig == SIGSEGV) {
 #ifdef SEGV_MAPERR

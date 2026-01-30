@@ -1,4 +1,4 @@
-﻿#ifndef _XREDIS_H
+#ifndef _XREDIS_H
 #define _XREDIS_H
 
 #include "xcoroutine.h"

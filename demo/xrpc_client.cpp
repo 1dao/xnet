@@ -1,4 +1,4 @@
-﻿#include "ae.h"
+#include "ae.h"
 #include "xchannel.h"
 #include "xpack.h"
 #include "xcoroutine.h"

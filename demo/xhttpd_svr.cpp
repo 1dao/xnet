@@ -1,10 +1,10 @@
-﻿// example_http_server.cpp
+// example_http_server.cpp
 #include "xhttpd.h"
 #include <iostream>
 #include <thread>
 
 // GET /api/hello 处理函数
-xCoroTask handle_hello(HttpRequest* req, HttpResponse* resp) {
+xCoroTaskT<bool> handle_hello(HttpRequest* req, HttpResponse* /*resp*/) {
     const char* name = "World";
     size_t name_len = 0;
     const char* param = xhttpd_get_query_param(req, "name", &name_len);
@@ -21,11 +21,11 @@ xCoroTask handle_hello(HttpRequest* req, HttpResponse* resp) {
         name, (unsigned long long)time(NULL));
 
     xhttpd_send_json(req->channel, 200, json);
-    co_return;
+    co_return true;
 }
 
 // POST /api/echo 处理函数
-xCoroTask handle_echo(HttpRequest* req, HttpResponse* resp) {
+xCoroTaskT<bool> handle_echo(HttpRequest* req, HttpResponse* resp) {
     xhttpd_set_header(resp, "Content-Type", "application/json");
 
     if (req->body_len > 0) {
@@ -41,7 +41,7 @@ xCoroTask handle_echo(HttpRequest* req, HttpResponse* resp) {
     }
 
     xhttpd_send_response(req->channel, resp);
-    co_return;
+    co_return true;
 }
 
 // 主函数
@@ -75,14 +75,14 @@ int main() {
     // 注册路由
     xhttpd_register_route(HTTP_GET, "/api/hello", handle_hello, NULL);
     xhttpd_register_route(HTTP_POST, "/api/echo", handle_echo, NULL);
-    xhttpd_register_route(HTTP_GET, "/api/status", [](HttpRequest* req, HttpResponse* resp) -> xCoroTask {
+    xhttpd_register_route(HTTP_GET, "/api/status", [](HttpRequest* req, HttpResponse* /*resp*/) -> xCoroTaskT<bool> {
         char json[256];
         snprintf(json, sizeof(json),
             "{\"status\": \"OK\", \"connections\": %zu, \"requests\": %llu}",
             xhttpd_get_active_connections(),
             (unsigned long long)xhttpd_get_total_requests());
         xhttpd_send_json(req->channel, 200, json);
-        co_return;
+        co_return true;
         }, NULL);
 
     // 启动服务器

@@ -1,4 +1,4 @@
-﻿// xmutex.h
+// xmutex.h
 #ifndef __XMUTEX_H__
 #define __XMUTEX_H__
 

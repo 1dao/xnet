@@ -1,4 +1,4 @@
-﻿// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
+// xcoroutine.cpp - Safe coroutine implementation with hardware exception protection
 
 #include "xcoroutine.h"
 #include <unordered_map>
@@ -232,7 +232,7 @@ private:
 // Safe resume implementation for xCoroTask
 // ==============================================
 
-bool xCoroTask::resume_safe(void* param, xCoroutineLJ* lj) {
+bool xCoroTask::resume_safe(void* /*param*/, xCoroutineLJ* lj) {
     if (!handle_ || handle_.done()) return false;
 
     // Save current LJ state
@@ -769,7 +769,7 @@ public:
 // Awaiter implementation
 // ==============================================
 
-void xFinAwaiter::await_suspend(std_coro::coroutine_handle<> h) noexcept {
+void xFinAwaiter::await_suspend(std_coro::coroutine_handle<> /*h*/) noexcept {
     if (_co_svs && coroutine_id > 0) {
         if (continuation) {
             // 子协程。恢复父协程。
@@ -866,7 +866,7 @@ void coroutine_resume_all() {
 }
 
 static void coroutine_wait_timeout(void* data) {
-    uint32_t wait_id = (uint32_t)data;
+    uint32_t wait_id = (uint32_t)(uintptr_t)data;
     if (_co_svs) _co_svs->resume_waiter_timeout(wait_id);
 }
 
@@ -875,12 +875,7 @@ void* coroutine_timer(uint32_t wait_id, int time_ms) {
 
     char name[32];
     snprintf(name, sizeof(name), "coro:wait:%d", wait_id);
-    return (void*)xtimer_add(time_ms, name, coroutine_wait_timeout, (void*)wait_id, 0);
-}
-
-static void coroutine_weekup(void* data) {
-    uint32_t coro_id = (uint32_t)data;
-    if (_co_svs) _co_svs->resume_coroutine(coro_id, NULL);
+    return (void*)xtimer_add(time_ms, name, coroutine_wait_timeout, (void*)(uintptr_t)wait_id, 0);
 }
 
 xAwaiter coroutine_sleep(int time_ms) {

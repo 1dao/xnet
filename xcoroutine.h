@@ -1,10 +1,11 @@
-﻿// xcoroutine.h - Safe coroutine implementation with hardware exception protection
+// xcoroutine.h - Safe coroutine implementation with hardware exception protection
 #ifndef _XCOROUTINE_H
 #define _XCOROUTINE_H
 
 #ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
+#include <csetjmp>
 #else
 #include <stddef.h>
 #include <stdint.h>
@@ -69,8 +70,8 @@ struct xCoroutineLJ {
 
 // Final Awaiter
 struct xFinAwaiter {
-    std_coro::coroutine_handle<> continuation = nullptr;
     int coroutine_id;
+    std_coro::coroutine_handle<> continuation = nullptr;
     xFinAwaiter(int id, std_coro::coroutine_handle<> h = nullptr) : coroutine_id(id), continuation(h) {}
 
     bool await_ready() noexcept { return false; }
@@ -85,6 +86,18 @@ struct xCoroTask {
         std::exception_ptr exception_ptr = nullptr;
         int hardware_signal = 0;            // 硬件异常信号
         bool exception_handled = false;     // 标记异常是否已处理
+#if defined(_WIN32) || defined(_WIN64)
+        std::string get_hardware_exception_message(DWORD signal) const {
+            switch (signal) {
+            case EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
+            case EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
+            case EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
+            case EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
+            case EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
+            default:      return "Unknown hardware exception";
+            }
+        }
+#endif
         std_coro::coroutine_handle<> continuation = nullptr;
 
         promise_type() = default;
@@ -170,11 +183,11 @@ struct xCoroTask {
             case SIGBUS:  return "Bus error";
             case SIGTRAP: return "Trace/breakpoint trap";
 #elif defined(_WIN32) || defined(_WIN64)
-            case EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
-            case EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
-            case EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
-            case EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
-            case EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
+            case (int)EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
+            case (int)EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
+            case (int)EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
+            case (int)EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
+            case (int)EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
 #endif
             default:      return "Unknown hardware exception";
             }
@@ -361,11 +374,11 @@ struct xCoroTaskT {
             case SIGBUS:  return "Bus error";
             case SIGTRAP: return "Trace/breakpoint trap";
 #elif defined(_WIN32) || defined(_WIN64)
-            case EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
-            case EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
-            case EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
-            case EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
-            case EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
+            case (int)EXCEPTION_ACCESS_VIOLATION: return "Access violation (memory access error)";
+            case (int)EXCEPTION_INT_DIVIDE_BY_ZERO: return "Integer divide by zero";
+            case (int)EXCEPTION_FLT_DIVIDE_BY_ZERO: return "Floating point divide by zero";
+            case (int)EXCEPTION_ILLEGAL_INSTRUCTION: return "Illegal instruction";
+            case (int)EXCEPTION_STACK_OVERFLOW: return "Stack overflow";
 #endif
             default:      return "Unknown hardware exception";
             }

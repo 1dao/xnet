@@ -1,4 +1,4 @@
-﻿#ifndef HTTPC_CACERT_H
+#ifndef HTTPC_CACERT_H
 #define HTTPC_CACERT_H
 
 #include <stddef.h>  // 用于 size_t 类型定义

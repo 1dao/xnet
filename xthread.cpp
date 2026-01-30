@@ -1,4 +1,4 @@
-﻿// xthread.cpp - 线程相关
+// xthread.cpp - 线程相关
 
 #include "xthread.h"
 #include "fmacros.h"
@@ -427,7 +427,7 @@ int xthread_set_notify(void* fd) {
     
 #ifdef _WIN32
     ctx->queue.set_iocp((HANDLE)fd);
-    xlog_warn("xthread_set_notify:%s, %d", ctx->name ? ctx->name : "", ((int)fd));
+    xlog_warn("xthread_set_notify:%s, %p", ctx->name ? ctx->name : "", fd);
 #else
     int fd_int = -1;
     if (fd != nullptr) {

@@ -1,4 +1,4 @@
-﻿#include "xlog.h"
+#include "xlog.h"
 #include <string.h>
 #include <time.h>
 #include "xmutex.h"
@@ -20,7 +20,7 @@ static int       xlog_show_timestamp = 1;
 static int       xlog_show_color = 1;
 static int       xlog_show_thread_name = 0;
 #ifdef _WIN32
-    static _declspec(thread) char  xlog_thread_name[32] = "main";
+    static __declspec(thread) char  xlog_thread_name[32] = "main";
 #else
     static __thread char           xlog_thread_name[32] = "main";
 #endif

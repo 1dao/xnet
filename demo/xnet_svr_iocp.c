@@ -1,4 +1,4 @@
-﻿#include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int server_fd = xchannel_listen(port, NULL, on_packet, on_close, NULL);
+    int server_fd = xchannel_listen(port, NULL, on_packet, on_close, NULL, xproto_blp4);
     if (server_fd == ANET_ERR) {
         printf("创建服务器失败: %d\n", server_fd);
         return 1;

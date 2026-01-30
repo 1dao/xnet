@@ -1,4 +1,4 @@
-﻿#include "benchmark.h"
+#include "benchmark.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

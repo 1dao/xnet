@@ -1,4 +1,4 @@
-﻿#include "xredis.h"
+#include "xredis.h"
 #include "xchannel.h"
 #include "xpack_redis.h"
 #include "xthread.h"
@@ -50,7 +50,7 @@ struct RedisPool {
 };
 
 #ifdef _WIN32
-static _declspec(thread) RedisPool* _pool = NULL;
+static __declspec(thread) RedisPool* _pool = NULL;
 #else
 static __thread RedisPool*          _pool = NULL;
 #endif

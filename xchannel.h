@@ -1,4 +1,4 @@
-﻿// ae_channel.h
+// ae_channel.h
 #ifndef _AE_CHANNEL_H
 #define _AE_CHANNEL_H
 #include "ae.h"

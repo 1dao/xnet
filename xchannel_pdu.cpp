@@ -1,4 +1,4 @@
-﻿#include <string.h>
+#include <string.h>
 #include "xchannel.h"
 #include "xchannel.inl"
 #include "xpack_redis.h"

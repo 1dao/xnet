@@ -1,4 +1,4 @@
-﻿#ifndef XHEAPMIN_H
+#ifndef XHEAPMIN_H
 #define XHEAPMIN_H
 
 #ifdef __cplusplus

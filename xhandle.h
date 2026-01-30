@@ -1,4 +1,4 @@
-﻿#ifndef XHANDLE_H
+#ifndef XHANDLE_H
 #define XHANDLE_H
 
 #include <vector>

@@ -54,7 +54,7 @@ typedef struct {
     HttpHandler default_500_handler;
 } HttpServerState;
 
-static HttpServerState _httpd_state = { 0 };
+static HttpServerState _httpd_state = {};
 
 static int on_http_data(xChannel* channel, char* buf, int len);
 static int on_http_closed(xChannel* channel, char* buf, int len);
@@ -243,7 +243,7 @@ static int on_http_data(xChannel* channel, char* buf, int len) {
     return len;
 }
 
-static int on_http_closed(xChannel* channel, char* buf, int len) {
+static int on_http_closed(xChannel* channel, char* /*buf*/, int /*len*/) {
     HttpConnection* conn = (HttpConnection*)channel->userdata;
     if (conn) {
         free_connection(conn);
@@ -650,7 +650,6 @@ int xhttpd_send_json(xChannel* channel, int status_code, const char* json) {
         return -1;
     }
 
-    HttpRequest* r = &conn->request;
     HttpResponse* resp = &conn->response;
 
     build_default_response(resp, status_code);
@@ -1248,12 +1247,10 @@ static const char* get_post_field(const HttpRequest* req, const char* field_name
     if (!req->body) return NULL;
 
     const char* content_type = NULL;
-    size_t content_type_len = 0;
     for (size_t i = 0; i < req->num_headers; i++) {
-        if (req->headers[i].name_len == 12 && 
+        if (req->headers[i].name_len == 12 &&
             strncasecmp(req->headers[i].name, "Content-Type", 12) == 0) {
             content_type = req->headers[i].value;
-            content_type_len = req->headers[i].value_len;
             break;
         }
     }

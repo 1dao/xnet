@@ -1,4 +1,4 @@
-﻿#ifndef _REDIS_FMACRO_H
+#ifndef _REDIS_FMACRO_H
 #define _REDIS_FMACRO_H
 
 #ifdef _WIN32
@@ -8,7 +8,9 @@
 #include <WinSock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#ifdef _MSC_VER
 #pragma comment(lib, "ws2_32.lib")
+#endif
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>

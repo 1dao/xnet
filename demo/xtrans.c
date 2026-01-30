@@ -1,4 +1,4 @@
-﻿#include "xhttpc.h"
+#include "xhttpc.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>   // 解决 malloc/free 隐式声明

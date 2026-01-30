@@ -1,122 +1,92 @@
  /*Copyright (c) 2011, BohuTANG <overred.shuttler at gmail dot com>
  * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include <stdio.h>
 #include <string.h>
-
 #include "anet.h"
 #include "ae.h"
-#include "request.h"
-#include "response.h"
 
-#define GET "get"
-#define SET "set"
-
-struct server{
+struct server {
 	char *bindaddr;
 	int port;
-	int fd;
-
+	xSocket fd;
 	aeEventLoop *el;
-
 	char neterr[1024];
 };
 
 struct server _svr;
+static aeFileEvent* client_ev = NULL;
+static aeFileEvent* accept_ev = NULL;
 
-void _ReadHandler(aeEventLoop *el, int fd, void *privdata, int mask)
-{
+int _ReadHandler(aeEventLoop *el, xSocket fd, void *privdata, int mask, int data) {
+	(void)el;
+	(void)privdata;
+	(void)mask;
+	(void)data;
 	char buf[1024];
-	char sent_buf[1024];
-	int nread;
-
-	nread=anetRead(fd,buf,1024);
-	if(nread==-1)
-		return;
-
-	if(nread==0){
-		return;
-	}else{
-		int ret;
-		struct request *req=request_new(buf);
-		struct response *resp;
-		ret=request_parse(req);
-		if(ret){
-			request_dump(req);
-			if(strcmp(req->argv[0],GET)){
-				/*to do nessDB's get*/
-			}else if(strcmp(req->argv[0],SET)){
-				/*to do nessDB's set*/
-			}
-			/*and others operations*/
-			resp=response_new(1,200);
-			resp->argv[0]="wow,nessDB";
-
-			response_detch(resp,sent_buf);
-			response_dump(resp);
-			anetWrite(fd,sent_buf,strlen(sent_buf));
-
-			response_free(resp);
-
+	int nread = anetRead(fd, buf, 1024);
+	
+	if (nread <= 0) {
+		if (nread < 0) {
+			printf("Read error\n");
+		} else {
+			printf("Client disconnected\n");
 		}
-		request_free(req);
-	}
-}
-
-void _AcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask)
-{
-	printf("accept:%d\n",fd);
-
-	int cport, cfd;
-    	char cip[128];
-   	cfd = anetTcpAccept(_svr.neterr,fd,cip,&cport);
-	if (cfd == AE_ERR) {
-		printf("accept....\n");
-		return;
+		aeDeleteFileEvent(_svr.el, fd, client_ev, AE_READABLE);
+		anetCloseSocket(fd);
+		return AE_OK;
 	}
 
-	aeCreateFileEvent(_svr.el,cfd,AE_READABLE,_ReadHandler,NULL);
+	buf[nread] = '\0';
+	printf("Received: %s\n", buf);
+	
+	const char* response = "+OK\r\n";
+	anetWrite(fd, response, strlen(response));
+	return AE_OK;
 }
 
-int main()
-{
-	_svr.bindaddr="127.0.0.1";
-	_svr.port=6379;
+int _AcceptHandler(aeEventLoop *el, xSocket fd, void *privdata, int mask, int data) {
+	(void)el;
+	(void)privdata;
+	(void)mask;
+	(void)data;
+	printf("Accept connection on fd: %lld\n", (long long)fd);
 
-	_svr.el=aeCreateEventLoop(100);
-	_svr.fd=anetTcpServer(_svr.neterr,_svr.port,_svr.bindaddr);
+	int cport;
+	xSocket cfd;
+	char cip[128];
+	cfd = anetTcpAccept(_svr.neterr, fd, cip, &cport);
+	if (cfd == ANET_ERR) {
+		printf("Accept failed\n");
+		return AE_OK;
+	}
 
-	//handler
- 	if (aeCreateFileEvent(_svr.el, _svr.fd, AE_READABLE,_AcceptHandler, NULL) == AE_ERR)
-		printf("creating file event");
+	printf("New client: %s:%d\n", cip, cport);
+	aeCreateFileEvent(_svr.el, cfd, AE_READABLE, _ReadHandler, NULL, &client_ev);
+	return AE_OK;
+}
 
+int main() {
+	_svr.bindaddr = "127.0.0.1";
+	_svr.port = 6379;
+
+	_svr.el = aeCreateEventLoop(100);
+	_svr.fd = anetTcpServer(_svr.neterr, _svr.port, _svr.bindaddr);
+	if (_svr.fd == ANET_ERR) {
+		printf("Failed to create server: %s\n", _svr.neterr);
+		return 1;
+	}
+
+	if (aeCreateFileEvent(_svr.el, _svr.fd, AE_READABLE, _AcceptHandler, NULL, &accept_ev) == AE_ERR) {
+		printf("Failed to create file event\n");
+		return 1;
+	}
+
+	printf("Server started on %s:%d\n", _svr.bindaddr, _svr.port);
 	aeMain(_svr.el);
-	printf("oops,exit\n");
+	
+	printf("Server exiting\n");
 	aeDeleteEventLoop(_svr.el);
-	return 1;
+	return 0;
 }

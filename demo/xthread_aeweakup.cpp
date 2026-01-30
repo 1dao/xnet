@@ -1,4 +1,4 @@
-﻿// xthread_demo.cpp - thread pool usage demo with ae event loop
+// xthread_demo.cpp - thread pool usage demo with ae event loop
 
 #include "ae.h"
 #include "xchannel.h"
@@ -195,7 +195,7 @@ xCoroTask test_coroutine_with_ae(void* arg) {
     xlog_info_tag("[Coroutine]", "Started with ae event loop support");
     // Test Redis SET operation
     {
-        auto result = co_await xthread_pcall(XTHR_REDIS, redis_set, "user:1001", "John Doe");
+        auto result = co_await xthread_pcall(XTHR_REDIS, redis_set, std::string("user:1001"), std::string("John Doe"));
         if (xthread_ok(result)) {
             std::string status = pack_to_str(result[1]);
             xlog_info_tag("[Coroutine]", "Redis SET result: %s", status.c_str());
@@ -210,7 +210,7 @@ xCoroTask test_coroutine_with_ae(void* arg) {
 
     // Call Redis thread to get data
     {
-        auto result = co_await xthread_pcall(XTHR_REDIS, redis_get, "user:1001");
+        auto result = co_await xthread_pcall(XTHR_REDIS, redis_get, std::string("user:1001"));
         if (xthread_ok(result)) {
             std::string value = pack_to_str(result[1]);
             xlog_info_tag("[Coroutine]", "Redis GET result: %s", value.c_str());
@@ -236,8 +236,8 @@ xCoroTask test_coroutine_with_ae(void* arg) {
     xlog_info_tag("[Coroutine]", "Testing concurrent operations...");
 
     // Launch multiple operations concurrently - 会自动发送信号通知
-    auto redis_task1 = xthread_pcall(XTHR_REDIS, redis_get, "config:timeout");
-    auto redis_task2 = xthread_pcall(XTHR_REDIS, redis_get, "config:retry");
+    auto redis_task1 = xthread_pcall(XTHR_REDIS, redis_get, std::string("config:timeout"));
+    auto redis_task2 = xthread_pcall(XTHR_REDIS, redis_get, std::string("config:retry"));
     auto compute_task1 = xthread_pcall(XTHR_COMPUTE, compute_task, 50, 75);
     auto compute_task2 = xthread_pcall(XTHR_COMPUTE, compute_task, 200, 300);
 
@@ -294,7 +294,7 @@ xCoroTask performance_test(void* arg) {
             // Redis operation
             char key[64];
             snprintf(key, sizeof(key), "test_key_%d", i);
-            auto result = co_await xthread_pcall(XTHR_REDIS, redis_get, key);
+            auto result = co_await xthread_pcall(XTHR_REDIS, redis_get, std::string(key));
             if (xthread_ok(result)) {
                 success_count++;
             }

@@ -1,4 +1,4 @@
-﻿/* anet.c -- Basic TCP socket stuff made a bit less boring
+/* anet.c -- Basic TCP socket stuff made a bit less boring
  *
  * Copyright (c) 2006-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.

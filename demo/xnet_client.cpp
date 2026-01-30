@@ -7,40 +7,40 @@
 
 #include <vector>
 
-// Ğ­Òé°ü½á¹¹¶¨Òå
+// åè®®åŒ…ç»“æ„å®šä¹‰
 typedef struct {
-    uint32_t pkg_len;       // °ü³¤¶È4×Ö½Ú
-    uint16_t protocol;      // Ğ­Òé2×Ö½Ú
-    uint8_t need_return;    // ÊÇ·ñ·µ»Ø1×Ö½Ú
-    uint8_t is_request;     // ÊÇÇëÇó»¹ÊÇ·µ»Ø1×Ö½Ú(1:ÇëÇó,0:·µ»Ø)
-    uint32_t pkg_id;        // Ğ­Òé°üID4×Ö½Ú
-    int param1;             // ²ÎÊı1ÕûĞÍ
-    // ²ÎÊı2¶ş½øÖÆÊı¾İ½ôËæÆäºó
+    uint32_t pkg_len;       // åŒ…é•¿åº¦4å­—èŠ‚
+    uint16_t protocol;      // åè®®2å­—èŠ‚
+    uint8_t need_return;    // æ˜¯å¦è¿”å›1å­—èŠ‚
+    uint8_t is_request;     // æ˜¯è¯·æ±‚è¿˜æ˜¯è¿”å›1å­—èŠ‚(1:è¯·æ±‚,0:è¿”å›)
+    uint32_t pkg_id;        // åè®®åŒ…ID4å­—èŠ‚
+    int param1;             // å‚æ•°1æ•´å‹
+    // å‚æ•°2äºŒè¿›åˆ¶æ•°æ®ç´§éšå…¶å
 } ProtocolPacket;
 
-// ¹¹½¨ÇëÇó°ü
+// æ„å»ºè¯·æ±‚åŒ…
 char* build_request_packet(uint16_t protocol, uint8_t need_return,
     uint32_t pkg_id, int param1,
     const char* param2, int param2_len,
     int* packet_len) {
-    // ¼ÆËã°ü×Ü³¤¶È£ºÍ·²¿³¤¶È + ²ÎÊı1³¤¶È + ²ÎÊı2³¤¶È
-    int header_len = sizeof(ProtocolPacket) - sizeof(int); // ¼õÈ¥param1µÄ´óĞ¡£¬ÒòÎªÒÑ¾­°üº¬ÔÚ½á¹¹ÖĞ
+    // è®¡ç®—åŒ…æ€»é•¿åº¦ï¼šå¤´éƒ¨é•¿åº¦ + å‚æ•°1é•¿åº¦ + å‚æ•°2é•¿åº¦
+    int header_len = sizeof(ProtocolPacket) - sizeof(int); // å‡å»param1çš„å¤§å°ï¼Œå› ä¸ºå·²ç»åŒ…å«åœ¨ç»“æ„ä¸­
     *packet_len = header_len + sizeof(int) + param2_len;
 
-    // ·ÖÅäÄÚ´æ
+    // åˆ†é…å†…å­˜
     char* packet = (char*)zmalloc(*packet_len);
     if (!packet) return NULL;
 
-    // Ìî³äÍ·²¿ĞÅÏ¢
+    // å¡«å……å¤´éƒ¨ä¿¡æ¯
     ProtocolPacket* pkg = (ProtocolPacket*)packet;
     pkg->pkg_len = *packet_len;
     pkg->protocol = protocol;
     pkg->need_return = need_return;
-    pkg->is_request = 1;  // ÇëÇó°ü
+    pkg->is_request = 1;  // è¯·æ±‚åŒ…
     pkg->pkg_id = pkg_id;
     pkg->param1 = param1;
 
-    // Ìî³ä²ÎÊı2
+    // å¡«å……å‚æ•°2
     if (param2 && param2_len > 0) {
         memcpy(packet + sizeof(ProtocolPacket), param2, param2_len);
     }
@@ -48,35 +48,35 @@ char* build_request_packet(uint16_t protocol, uint8_t need_return,
     return packet;
 }
 
-// ½âÎöÏìÓ¦°ü
+// è§£æå“åº”åŒ…
 int parse_response_packet(const char* response, int response_len,
     ProtocolPacket* pkg, char** param2, int* param2_len) {
     if (response_len < sizeof(ProtocolPacket)) {
-        printf("ÏìÓ¦°ü³¤¶È²»×ã\n");
+        printf("å“åº”åŒ…é•¿åº¦ä¸è¶³\n");
         return -1;
     }
 
-    // ¸´ÖÆÍ·²¿ĞÅÏ¢
+    // å¤åˆ¶å¤´éƒ¨ä¿¡æ¯
     memcpy(pkg, response, sizeof(ProtocolPacket));
 
-    // ÑéÖ¤°ü³¤¶È
+    // éªŒè¯åŒ…é•¿åº¦
     if (pkg->pkg_len != response_len) {
-        printf("ÏìÓ¦°ü°ü³¤¶È²»Æ¥Åä: %d vs %d\n", pkg->pkg_len, response_len);
+        printf("å“åº”åŒ…åŒ…é•¿åº¦ä¸åŒ¹é…: %d vs %d\n", pkg->pkg_len, response_len);
         return -1;
     }
 
-    // ÑéÖ¤ÊÇ·ñÎª·µ»Ø°ü
+    // éªŒè¯æ˜¯å¦ä¸ºè¿”å›åŒ…
     if (pkg->is_request != 0) {
-        printf("²»ÊÇ·µ»Ø°ü\n");
+        printf("ä¸æ˜¯è¿”å›åŒ…\n");
         return -1;
     }
 
-    // ÌáÈ¡²ÎÊı2
+    // æå–å‚æ•°2
     *param2_len = response_len - sizeof(ProtocolPacket);
     if (*param2_len > 0) {
         *param2 = (char*)zmalloc(*param2_len + 1);
         memcpy(*param2, response + sizeof(ProtocolPacket), *param2_len);
-        (*param2)[*param2_len] = '\0'; // È·±£×Ö·û´®½áÊø
+        (*param2)[*param2_len] = '\0'; // ç¡®ä¿å­—ç¬¦ä¸²ç»“æŸ
     } else {
         *param2 = NULL;
     }
@@ -86,7 +86,7 @@ int parse_response_packet(const char* response, int response_len,
 
 int main(int argc, char* argv[]) {
     //if (argc < 3) {
-    //    printf("Ê¹ÓÃ·½·¨: %s <·şÎñÆ÷IP> <¶Ë¿Ú>\n", argv[0]);
+    //    printf("ä½¿ç”¨æ–¹æ³•: %s <æœåŠ¡å™¨IP> <ç«¯å£>\n", argv[0]);
     //    return 1;
     //}
 
@@ -97,29 +97,29 @@ int main(int argc, char* argv[]) {
     int port = 6379;
     char err[ANET_ERR_LEN];
 
-    // ´´½¨TCPÁ¬½Ó
+    // åˆ›å»ºTCPè¿æ¥
     int fd = anetTcpConnect(err, (char*)ip, port);
     if (fd == ANET_ERR) {
-        printf("Á¬½Ó·şÎñÆ÷Ê§°Ü: %s\n", err);
+        printf("è¿æ¥æœåŠ¡å™¨å¤±è´¥: %s\n", err);
         return 1;
     }
 
-    // ÉèÖÃTCP_NODELAY
+    // è®¾ç½®TCP_NODELAY
     if (anetTcpNoDelay(err, fd) != ANET_OK) {
-        printf("ÉèÖÃTCP_NODELAYÊ§°Ü: %s\n", err);
+        printf("è®¾ç½®TCP_NODELAYå¤±è´¥: %s\n", err);
         anetCloseSocket(fd);
         return 1;
     }
 
-    // ×¼±¸·¢ËÍµÄÊı¾İ
-    uint16_t protocol = 1;         // Ğ­ÒéºÅ1
-    uint8_t need_return = 1;       // ĞèÒª·µ»Ø
-    uint32_t pkg_id = 12345;       // °üID
-    int param1 = 100;              // ²ÎÊı1
-    const char* param2 = "ÕâÊÇ²âÊÔÊı¾İ"; // ²ÎÊı2
+    // å‡†å¤‡å‘é€çš„æ•°æ®
+    uint16_t protocol = 1;         // åè®®å·1
+    uint8_t need_return = 1;       // éœ€è¦è¿”å›
+    uint32_t pkg_id = 12345;       // åŒ…ID
+    int param1 = 100;              // å‚æ•°1
+    const char* param2 = "è¿™æ˜¯æµ‹è¯•æ•°æ®"; // å‚æ•°2
     int param2_len = strlen(param2);
 
-    // ¹¹½¨ÇëÇó°ü
+    // æ„å»ºè¯·æ±‚åŒ…
     int packet_len;
     std::vector<char> vdata;
     vdata.push_back('a');
@@ -131,51 +131,51 @@ int main(int argc, char* argv[]) {
         vdata.data(), vdata.size(),
         &packet_len);
     if (!request_packet) {
-        printf("¹¹½¨ÇëÇó°üÊ§°Ü\n");
+        printf("æ„å»ºè¯·æ±‚åŒ…å¤±è´¥\n");
         anetCloseSocket(fd);
         return 1;
     }
 
-    // ·¢ËÍÇëÇó°ü
-    printf("·¢ËÍÇëÇó°ü - ³¤¶È: %d, Ğ­Òé: %d, °üID: %d\n",
+    // å‘é€è¯·æ±‚åŒ…
+    printf("å‘é€è¯·æ±‚åŒ… - é•¿åº¦: %d, åè®®: %d, åŒ…ID: %d\n",
         packet_len, protocol, pkg_id);
     int send_len = anetWrite(fd, request_packet, packet_len);
     if (send_len != packet_len) {
-        printf("·¢ËÍÊı¾İÊ§°Ü£¬·¢ËÍÁË %d/%d ×Ö½Ú\n", send_len, packet_len);
+        printf("å‘é€æ•°æ®å¤±è´¥ï¼Œå‘é€äº† %d/%d å­—èŠ‚\n", send_len, packet_len);
         zfree(request_packet);
         anetCloseSocket(fd);
         return 1;
     }
     zfree(request_packet);
 
-    // Èç¹ûĞèÒª·µ»Ø£¬µÈ´ı½ÓÊÕÏìÓ¦
+    // å¦‚æœéœ€è¦è¿”å›ï¼Œç­‰å¾…æ¥æ”¶å“åº”
     if (need_return) {
         char response[4096];
         int recv_len = anetRead(fd, response, sizeof(response) - 1);
         if (recv_len <= 0) {
-            printf("½ÓÊÕÏìÓ¦Ê§°Ü: %d\n", recv_len);
+            printf("æ¥æ”¶å“åº”å¤±è´¥: %d\n", recv_len);
             anetCloseSocket(fd);
             return 1;
         }
 
-        // ½âÎöÏìÓ¦
+        // è§£æå“åº”
         ProtocolPacket resp_pkg;
         char* resp_param2;
         int resp_param2_len;
 
         if (parse_response_packet(response, recv_len, &resp_pkg, &resp_param2, &resp_param2_len) == 0) {
-            printf("ÊÕµ½ÏìÓ¦ - Ğ­Òé: %d, °üID: %d, ²ÎÊı1: %d\n",
+            printf("æ”¶åˆ°å“åº” - åè®®: %d, åŒ…ID: %d, å‚æ•°1: %d\n",
                 resp_pkg.protocol, resp_pkg.pkg_id, resp_pkg.param1);
             if (resp_param2 && resp_param2_len > 0) {
-                printf("ÏìÓ¦Êı¾İ: %s\n", resp_param2);
+                printf("å“åº”æ•°æ®: %s\n", resp_param2);
                 zfree(resp_param2);
             }
         }
     }
 
-    // ¹Ø±ÕÁ¬½Ó
+    // å…³é—­è¿æ¥
     anetCloseSocket(fd);
-    printf("¿Í»§¶ËÒÑ¹Ø±Õ\n");
+    printf("å®¢æˆ·ç«¯å·²å…³é—­\n");
 
     return 0;
 }

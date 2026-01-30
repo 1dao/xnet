@@ -1,4 +1,4 @@
-﻿#ifndef _XRPC_H
+#ifndef _XRPC_H
 #define _XRPC_H
 
 #include "xchannel.h"

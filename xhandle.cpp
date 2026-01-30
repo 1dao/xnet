@@ -137,7 +137,7 @@ xCoroTask coroutine_func_rpc(void* arg) {
     co_return;
 }
 
-int xhandle_on_pack(xChannel* s, char* buf, int len) {
+int xhandle_on_pack(xChannel* s, char* /*buf*/, int len) {
     uint16_t is_rpc = 0;
     uint32_t wait_id = 0;
     int co_id = 0;

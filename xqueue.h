@@ -1,4 +1,4 @@
-﻿#ifndef __XQUEUE_H__
+#ifndef __XQUEUE_H__
 #define __XQUEUE_H__
 
 #ifdef __cplusplus

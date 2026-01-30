@@ -1,4 +1,4 @@
-﻿// test_coroutine.cpp
+// test_coroutine.cpp
 #include "xcoroutine.h"
 #include <iostream>
 #include <thread>

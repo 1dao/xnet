@@ -1,4 +1,4 @@
-﻿// ae_iocp.c
+// ae_iocp.c
 
 #include <string.h>
 #include <winsock2.h>

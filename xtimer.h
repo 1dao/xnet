@@ -1,4 +1,4 @@
-﻿#ifndef _XTIMER_H_
+#ifndef _XTIMER_H_
 #define _XTIMER_H_
 
 #ifdef __cplusplus

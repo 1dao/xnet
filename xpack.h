@@ -1,4 +1,4 @@
-﻿/*
+/*
  * =====================================================================================
  *                               XPACK - C++ 数据打包库
  * =====================================================================================
@@ -379,7 +379,7 @@ XPackBuff xpack_pack(bool target_big_endian, const Args&... args) {
 template<typename T>
 T unpack_basic(const char* buffer, int& offset, bool data_big, int& remaining) {
     static_assert(std::is_arithmetic<T>::value, "Only arithmetic types can be unpacked as basic types");
-    if (sizeof(T) > remaining) throw std::runtime_error("Insufficient data for basic type");
+    if (static_cast<int>(sizeof(T)) > remaining) throw std::runtime_error("Insufficient data for basic type");
     T value;
     std::memcpy(&value, buffer + offset, sizeof(T));
     offset += sizeof(T);
@@ -389,7 +389,7 @@ T unpack_basic(const char* buffer, int& offset, bool data_big, int& remaining) {
 }
 
 inline XPackBuff unpack_buffer(const char* buffer, int& offset, bool data_big, int& remaining) {
-    if (sizeof(int) > remaining) throw std::runtime_error("Insufficient data for buffer length");
+    if (static_cast<int>(sizeof(int)) > remaining) throw std::runtime_error("Insufficient data for buffer length");
     int len = 0;
     std::memcpy(&len, buffer + offset, sizeof(int));
     offset += sizeof(int);
@@ -404,7 +404,7 @@ inline XPackBuff unpack_buffer(const char* buffer, int& offset, bool data_big, i
 }
 
 inline std::string unpack_std_string(const char* buffer, int& offset, bool data_big, int& remaining) {
-    if (sizeof(int) > remaining) throw std::runtime_error("Insufficient data for string length");
+    if (static_cast<int>(sizeof(int)) > remaining) throw std::runtime_error("Insufficient data for string length");
     int len = 0;
     std::memcpy(&len, buffer + offset, sizeof(int));
     offset += sizeof(int);

@@ -1,4 +1,4 @@
-﻿/* A simple event-driven programming library. Originally I wrote this code
+/* A simple event-driven programming library. Originally I wrote this code
  * for the Jim's event-loop (Jim is a Tcl interpreter) but later translated
  * it in form of a library for easy reuse.
  *
@@ -43,7 +43,7 @@
     #include <sys/socket.h>  // For AF_UNIX, SOCK_STREAM
     #include <fcntl.h>       // For fcntl, F_SETFL, O_NONBLOCK
 #else
-    #include <corecrt_search.h>
+    #include <search.h>
 #endif
 #include "ae.h"
 #include "zmalloc.h"
@@ -51,7 +51,7 @@
 
 /* main aeEventLoop */
 #ifdef _WIN32
-static _declspec(thread) aeEventLoop* _net_ae = NULL;
+static __declspec(thread) aeEventLoop* _net_ae = NULL;
 #else
 static __thread aeEventLoop* _net_ae = NULL;
 #endif
@@ -196,7 +196,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, xSocket fd, int mask,
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
-    fe->clientData = clientData?clientData:fd;
+    fe->clientData = clientData ? clientData : (void*)(intptr_t)fd;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;

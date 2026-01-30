@@ -1,4 +1,4 @@
-﻿/* zmalloc - total amount of allocated memory aware version of malloc()
+/* zmalloc - total amount of allocated memory aware version of malloc()
  *
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.

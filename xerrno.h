@@ -1,4 +1,4 @@
-﻿#ifndef XERRNO_H
+#ifndef XERRNO_H
 #define XERRNO_H
 
 // 定义网络错误枚举

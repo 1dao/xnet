@@ -6,20 +6,20 @@
 #include "ae.h"
 #include "anet.h"
 
-// 协议处理函数指针类型
+// Protocol handler function pointer type
 typedef int (*ProtocolHandler)(int param1, const char* param2, int param2_len, char* response, int* response_len);
 
-// 协议结构定义
+// Protocol structure
 typedef struct {
     uint16_t protocol;
     ProtocolHandler handler;
 } ProtocolMapping;
 
-// 全局协议映射表
+// Global protocol mapping table
 static ProtocolMapping protocol_handlers[256];
 static int handler_count = 0;
 
-// 注册协议处理函数
+// Register protocol handler
 void register_protocol_handler(uint16_t protocol, ProtocolHandler handler) {
     if (handler_count < 256) {
         protocol_handlers[handler_count].protocol = protocol;
@@ -28,7 +28,7 @@ void register_protocol_handler(uint16_t protocol, ProtocolHandler handler) {
     }
 }
 
-// 查找协议处理函数
+// Find protocol handler
 ProtocolHandler find_protocol_handler(uint16_t protocol) {
     for (int i = 0; i < handler_count; i++) {
         if (protocol_handlers[i].protocol == protocol) {
@@ -38,49 +38,50 @@ ProtocolHandler find_protocol_handler(uint16_t protocol) {
     return NULL;
 }
 
-// 示例协议处理函数1
+// Example protocol handler 1
 int handle_protocol_1(int param1, const char* param2, int param2_len, char* response, int* response_len) {
-    printf("处理协议1: param1=%d, param2=%.*s\n", param1, param2_len, param2);
-    *response_len = sprintf(response, "协议1处理结果: %d", param1 * 2);
-    return 0; // 成功
+    printf("Processing protocol 1: param1=%d, param2=%.*s\n", param1, param2_len, param2);
+    *response_len = sprintf(response, "Protocol 1 response: %d", param1 * 2);
+    return 0; // Success
 }
 
-// 示例协议处理函数2
+// Example protocol handler 2
 int handle_protocol_2(int param1, const char* param2, int param2_len, char* response, int* response_len) {
-    printf("处理协议2: param1=%d, param2长度=%d\n", param1, param2_len);
-    *response_len = sprintf(response, "协议2处理结果: %d字节数据", param2_len);
-    return 0; // 成功
+    (void)param2;
+    printf("Processing protocol 2: param1=%d, param2_len=%d\n", param1, param2_len);
+    *response_len = sprintf(response, "Protocol 2 response: %d bytes received", param2_len);
+    return 0; // Success
 }
 
-// 解析请求包并处理
+// Process incoming request
 void process_request(const char* request, int request_len, char* response, int* response_len) {
-    if (request_len < 12) { // 最小请求包长度：4+2+1+1+4=12字节
+    if (request_len < 12) { // Minimum header size: 4+2+1+1+4=12 bytes
         *response_len = 0;
         return;
     }
 
-    // 解析请求包头部
+    // Parse request header
     uint32_t pkg_len = *(const uint32_t*)request;
     uint16_t protocol = *(const uint16_t*)(request + 4);
     uint8_t need_return = *(const uint8_t*)(request + 6);
     uint8_t is_request = *(const uint8_t*)(request + 7);
     uint32_t pkg_id = *(const uint32_t*)(request + 8);
 
-    // 验证包长度
-    if (pkg_len != request_len) {
-        printf("包长度不匹配: %d vs %d\n", pkg_len, request_len);
+    // Verify packet length
+    if (pkg_len != (uint32_t)request_len) {
+        printf("Packet length mismatch: %d vs %d\n", pkg_len, request_len);
         *response_len = 0;
         return;
     }
 
-    // 检查是否为请求包
+    // Check if it's a request packet
     if (is_request != 1) {
-        printf("不是请求包\n");
+        printf("Not a request packet\n");
         *response_len = 0;
         return;
     }
 
-    // 解析参数
+    // Parse parameters
     int param1 = 0;
     const char* param2 = NULL;
     int param2_len = 0;
@@ -93,28 +94,27 @@ void process_request(const char* request, int request_len, char* response, int* 
         }
     }
 
-    // 查找并调用对应的协议处理函数
+    // Find and call protocol handler
     ProtocolHandler handler = find_protocol_handler(protocol);
     char handler_response[1024] = { 0 };
     int handler_response_len = 0;
-    int ret = -1;
 
     if (handler) {
-        ret = handler(param1, param2, param2_len, handler_response, &handler_response_len);
+        (void)handler(param1, param2, param2_len, handler_response, &handler_response_len);
     }
     else {
-        printf("未找到协议%d的处理函数\n", protocol);
+        printf("No handler found for protocol %d\n", protocol);
         *response_len = 0;
         return;
     }
 
-    // 构建响应包
+    // Build response packet
     if (need_return) {
-        // 响应包头部长度：4+2+1+1+4=12字节
+        // Response header size: 4+2+1+1+4=12 bytes
         *response_len = 12 + handler_response_len;
-        uint32_t resp_pkg_len = *response_len;
-        uint8_t return_flag = 0; // 不返回
-        uint8_t is_response = 0; // 返回包
+        uint32_t resp_pkg_len = (uint32_t)*response_len;
+        uint8_t return_flag = 0; // No return
+        uint8_t is_response = 0; // Response packet
 
         memcpy(response, &resp_pkg_len, 4);
         memcpy(response + 4, &protocol, 2);
@@ -128,92 +128,104 @@ void process_request(const char* request, int request_len, char* response, int* 
     }
 }
 
-// 客户端数据读取处理函数
-void read_handler(aeEventLoop* el, int fd, void* privdata, int mask) {
+// Client data read handler
+static aeFileEvent* client_ev = NULL;
+
+int read_handler(aeEventLoop* el, xSocket fd, void* privdata, int mask, int data) {
+    (void)privdata;
+    (void)mask;
+    (void)data;
     char buf[4096];
     int nread = anetRead(fd, buf, sizeof(buf));
     if (nread <= 0) {
         if (nread < 0) {
-            printf("读取错误\n");
+            printf("Read error\n");
         } else {
-            printf("客户端断开连接\n");
+            printf("Client disconnected\n");
         }
-        aeDeleteFileEvent(el, fd, AE_READABLE);
+        aeDeleteFileEvent(el, fd, client_ev, AE_READABLE);
         anetCloseSocket(fd);
-        return;
+        return AE_OK;
     }
 
-    // 处理请求并生成响应
+    // Process request and send response
     char response[4096];
     int response_len = 0;
     process_request(buf, nread, response, &response_len);
 
-    // 发送响应
+    // Send response
     if (response_len > 0) {
         anetWrite(fd, response, response_len);
     }
+    return AE_OK;
 }
 
-// 服务器接受连接处理函数
-void accept_handler(aeEventLoop* el, int fd, void* privdata, int mask) {
+// Accept connection handler
+static aeFileEvent* server_ev = NULL;
+
+int accept_handler(aeEventLoop* el, xSocket fd, void* privdata, int mask, int data) {
+    (void)privdata;
+    (void)mask;
+    (void)data;
     char ip[64];
     int port;
-    int client_fd = anetTcpAccept(NULL, fd, ip, &port);
+    xSocket client_fd = anetTcpAccept(NULL, fd, ip, &port);
 
     if (client_fd == ANET_ERR) {
-        printf("接受连接失败\n");
-        return;
+        printf("Accept failed\n");
+        return AE_OK;
     }
 
-    printf("新连接: %s:%d\n", ip, port);
+    printf("New connection: %s:%d\n", ip, port);
 
-    // 设置非阻塞模式
+    // Set non-blocking mode
     anetNonBlock(NULL, client_fd);
-    // 禁用Nagle算法
+    // Disable Nagle algorithm
     anetTcpNoDelay(NULL, client_fd);
 
-    // 注册读事件处理器
-    if (aeCreateFileEvent(el, client_fd, AE_READABLE, read_handler, NULL) == AE_ERR) {
-        printf("注册事件失败\n");
+    // Register read event
+    if (aeCreateFileEvent(el, client_fd, AE_READABLE, read_handler, NULL, &client_ev) == AE_ERR) {
+        printf("Register event failed\n");
         anetCloseSocket(client_fd);
     }
+    return AE_OK;
 }
 
 int main(int argc, char* argv[]) {
-    int port = 6379; // 默认端口
+    int port = 6379; // Default port
     if (argc > 1) {
         port = atoi(argv[1]);
     }
 
-    // 注册协议处理函数
+    // Register protocol handlers
     register_protocol_handler(1, handle_protocol_1);
     register_protocol_handler(2, handle_protocol_2);
 
-    // 创建事件循环
-    aeEventLoop* el = aeCreateEventLoop();
+    // Create event loop
+    aeEventLoop* el = aeCreateEventLoop(1024);
     if (!el) {
-        printf("创建事件循环失败\n");
+        printf("Failed to create event loop\n");
         return 1;
     }
 
-    // 创建TCP服务器
+    // Create TCP server
     char err[ANET_ERR_LEN];
-    int server_fd = anetTcpServer(err, port, NULL);
+    xSocket server_fd = anetTcpServer(err, port, NULL);
     if (server_fd == ANET_ERR) {
-        printf("创建服务器失败: %s\n", err);
+        printf("Failed to create server: %s\n", err);
         return 1;
     }
 
-    // 设置非阻塞模式
+    // Set non-blocking mode
     anetNonBlock(err, server_fd);
 
-    // 注册接受连接事件
-    if (aeCreateFileEvent(el, server_fd, AE_READABLE, accept_handler, NULL) == AE_ERR) {
-        printf("注册接受事件失败\n");
+    // Register accept event
+    if (aeCreateFileEvent(el, server_fd, AE_READABLE, accept_handler, NULL, &server_ev) == AE_ERR) {
+        printf("Register accept event failed\n");
         return 1;
     }
 
-    printf("服务器启动，监听端口 %d\n", port);
+    printf("Server started on port %d\n", port);
     aeMain(el);
     aeDeleteEventLoop(el);
 

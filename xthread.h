@@ -1,4 +1,4 @@
-﻿#ifndef _XTHREAD_H
+#ifndef _XTHREAD_H
 #define _XTHREAD_H
 /* xthread.h - 线程池与跨线程RPC
 ** 支持预定义线程ID，协程内同步调用，复用xcoroutine框架*/

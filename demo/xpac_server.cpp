@@ -1,4 +1,4 @@
-﻿// xpac_server.cpp - PAC文件管理服务器
+// xpac_server.cpp - PAC文件管理服务器
 #include "xhttpd.h"
 #include <fstream>
 #include <sstream>

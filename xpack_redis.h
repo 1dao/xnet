@@ -1,4 +1,4 @@
-﻿/*
+/*
  * =====================================================================================
  *                           Redis RESP2/RESP3 协议打包解包库
  * =====================================================================================
@@ -538,7 +538,7 @@ namespace redis {
             }
         }
 
-        void encode_null(std::ostringstream& oss, const RedisObject& obj) const {
+        void encode_null(std::ostringstream& oss, const RedisObject& /*obj*/) const {
             if (protocol_ == RedisProtocol::RESP3) {
                 oss << "_\r\n";  // RESP3 空值
             }

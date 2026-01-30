@@ -1,4 +1,4 @@
-﻿// xtimer.c
+// xtimer.c
 #include "xtimer.h"
 
 typedef struct xTimerNode {
@@ -151,7 +151,7 @@ void xtimer_print(xTimerSet* tm) {
 }
 
 #ifdef _WIN32
-static _declspec(thread) xTimerSet* _cur = NULL;
+static __declspec(thread) xTimerSet* _cur = NULL;
 #else
 static __thread xTimerSet* _cur = NULL;
 #endif

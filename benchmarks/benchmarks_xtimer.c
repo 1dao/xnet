@@ -1,4 +1,4 @@
-﻿#include "xtimer.h"
+#include "xtimer.h"
 #include "benchmark.h"
 #include <stdlib.h>
 #include <string.h>

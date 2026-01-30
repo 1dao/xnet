@@ -1,4 +1,4 @@
-﻿#ifndef _XCHANNEL_INL_
+#ifndef _XCHANNEL_INL_
 #define _XCHANNEL_INL_
 #include "xchannel.h"
 // struct xChannel;
