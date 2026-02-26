@@ -190,12 +190,12 @@ xtimerHandler xtimer_add(int interval_ms, const char* name, fnOnTime callback, v
     if (!_cur) {
         _cur = xtimer_pool_create(100);
     }
-    
+
     return (xtimerHandler)xtimer_create(_cur, interval_ms, name, callback, ud, repeat_num);
 }
 
 void xtimer_del(xtimerHandler handler) {
-    if (_cur) 
+    if (_cur)
         xtimer_destroy(_cur, (xTimerNode*)handler);
     else
         xtimer_node_del((xTimerNode*)handler);

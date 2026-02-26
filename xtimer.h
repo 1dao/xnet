@@ -24,8 +24,14 @@ void          xtimer_del(xtimerHandler handler);
 #ifdef _WIN32
 #include <windows.h>
 #include <time.h>
-static long64 time_get_ms() {
-    return (long64)GetTickCount64();
+static inline long64 time_get_ms() {
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+
+    ULARGE_INTEGER ull;
+    ull.LowPart = ft.dwLowDateTime;
+    ull.HighPart = ft.dwHighDateTime;
+    return ull.QuadPart / 10000 - 11644473600000LL;
 }
 
 static long64 time_get_us() {
