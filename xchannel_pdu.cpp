@@ -197,6 +197,81 @@ static int resp3_read_header(xChannel* channel, size_t* data_len) {
     return 0;
 }
 
+// ==================== NATS协议实现 (行基文本协议) ====================
+
+static xChannelErrCode nats_check_complete(xChannel* channel) {
+    if (!channel)
+        return PACKET_FD_INVALD;
+
+    int len = (int)(channel->rpos - channel->rbuf);
+    if (len < 2) return PACKET_INCOMPLETE;
+
+    // 查找第一个 \r\n 作为命令结束
+    int cmd_end = -1;
+    for (int i = 0; i < len - 1; i++) {
+        if (channel->rbuf[i] == '\r' && channel->rbuf[i + 1] == '\n') {
+            cmd_end = i;
+            break;
+        }
+    }
+    if (cmd_end < 0) return PACKET_INCOMPLETE;
+
+    // 检查是否是 MSG 命令，MSG 后面还有消息体
+    // MSG <subject> <sid> [reply-to] <#bytes>\r\n<payload>\r\n
+    if (len >= 3 && strncasecmp(channel->rbuf, "MSG", 3) == 0) {
+        // 解析字节数
+        int i = 3;
+        while (i < cmd_end && isspace(channel->rbuf[i])) i++;
+        // 跳过 subject
+        while (i < cmd_end && !isspace(channel->rbuf[i])) i++;
+        while (i < cmd_end && isspace(channel->rbuf[i])) i++;
+        // 跳过 sid
+        while (i < cmd_end && !isspace(channel->rbuf[i])) i++;
+        while (i < cmd_end && isspace(channel->rbuf[i])) i++;
+        // 可能是 reply-to 或者是字节数
+        int start = i;
+        while (i < cmd_end && !isspace(channel->rbuf[i])) i++;
+        int next = i;
+        while (i < cmd_end && isspace(channel->rbuf[i])) i++;
+        // 如果还有内容，说明前面是 reply-to，后面是字节数
+        int num_start = start;
+        if (i < cmd_end) {
+            num_start = i;
+            while (i < cmd_end && !isspace(channel->rbuf[i])) i++;
+        }
+
+        // 解析字节数
+        int payload_len = 0;
+        for (int j = num_start; j < i && isdigit(channel->rbuf[j]); j++) {
+            payload_len = payload_len * 10 + (channel->rbuf[j] - '0');
+        }
+
+        // 需要 cmd_end + 2(\r\n) + payload_len + 2(\r\n)
+        int total_needed = cmd_end + 2 + payload_len + 2;
+        if (len < total_needed) return PACKET_INCOMPLETE;
+    }
+
+    return PACKET_SUCCESS;
+}
+
+static int nats_write_header(xChannel* channel, size_t data_len) {
+    if (!channel || !channel->wbuf) {
+        return PACKET_FD_INVALD;
+    }
+    // NATS 协议不需要包头，直接返回 0
+    (void)data_len;
+    return 0;
+}
+
+static int nats_read_header(xChannel* channel, size_t* data_len) {
+    if (!channel || !channel->rbuf || !channel->rpos || !data_len) {
+        return PACKET_FD_INVALD;
+    }
+    // 返回当前缓冲区中的所有数据
+    *data_len = (int)(channel->rpos - channel->rbuf);
+    return 0;
+}
+
 // ==================== 全局操作对象数组 ====================
 
 const PacketOps _g_pack_ops[xproto_max] = {
@@ -231,6 +306,14 @@ const PacketOps _g_pack_ops[xproto_max] = {
         resp3_read_header,       // read_header
         0,                       // header_size
         "RESP3"                  // proto_name
+    },
+    // xrpoto_crlf_http1 = 4 (used for NATS)
+    {
+        nats_check_complete,    // check_complete
+        nats_write_header,      // write_header
+        nats_read_header,       // read_header
+        0,                      // header_size
+        "NATS"                  // proto_name
     },
 };
 

@@ -277,13 +277,31 @@ svr_DEPS = \
     ../xlog.c \
     ../xtimer.c
 
+# xnats_client - NATS client demo
+xnats_client_SRC = xnats_client.c
+xnats_client_DEPS = \
+    ../ae.c \
+    ../anet.c \
+    ../zmalloc.c \
+    ../xlog.c \
+    ../xtimer.c \
+    ../xargs.c \
+    ../xchannel.cpp \
+    ../xchannel_pdu.cpp \
+    ../xcoroutine.cpp \
+    ../xhandle.cpp \
+    ../xrpc.cpp \
+    ../xthread.cpp \
+    ../nats/nats_client.cpp \
+    ../nats/nats_protocol.c
+
 # ============================================
 # All demos list
 # ============================================
 
 DEMOS = xhttpd_svr xrpc_server xrpc_client xthread_demo xnet_client xnet_svr \
         xnet_client_coroutine xnet_svr_coroutine xnet_svr_iocp xnet_coroutine \
-        xpac_server xredis_client xcoroutine_exception xthread_aeweakup svr
+        xpac_server xredis_client xcoroutine_exception xthread_aeweakup svr xnats_client
 
 # Generate all targets
 ALL_TARGETS = $(patsubst %,$(BIN_DIR)/%$(TARGET_EXT),$(DEMOS))
@@ -382,19 +400,23 @@ $(OBJ_DIR)/xnet_svr_iocp.o: xnet_svr_iocp.c
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# nats files use C++ compiler (needs xchannel.h with C++ syntax)
+$(XNET_OBJ_DIR)/nats/%.o: ../nats/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 # ============================================
 # Generic linking pattern
 # ============================================
 
 # Convert dependency paths to object paths
+# Handle: ../xxx.c -> .obj/xnet/xxx.o
+# Handle: ../nats/xxx.c -> .obj/xnet/nats/xxx.o
 define LINK_DEMO
 $(BIN_DIR)/$(1)$(TARGET_EXT): $(OBJ_DIR)/$(1).o $$(patsubst ../%.c,$(XNET_OBJ_DIR)/%.o,$$(patsubst ../%.cpp,$(XNET_OBJ_DIR)/%.o,$(2)))
 	$(CXX) -o $$@ $$^ $(LDFLAGS)
 	@echo "[OK] $(1) built!"
 endef
-
-# Generate link rules for each demo
-$(foreach demo,$(DEMOS),$(eval $(call LINK_DEMO,$(demo),$($(demo)_DEPS))))
 
 # ============================================
 # Shortcut targets
@@ -430,10 +452,16 @@ xthread_aeweakup: $(BIN_DIR)/xthread_aeweakup$(TARGET_EXT)
 
 svr: $(BIN_DIR)/svr$(TARGET_EXT)
 
+xnats_client: $(BIN_DIR)/xnats_client$(TARGET_EXT)
+
+# Generate link rules for each demo
+# NOTE: This must be after all DEPS variables are defined
+$(foreach demo,$(DEMOS),$(eval $(call LINK_DEMO,$(demo),$($(demo)_DEPS))))
+
 # ============================================
 # Info output
 # ============================================
 $(info ========================================)
 $(info Demo Makefile for $(PLATFORM))
-$(info Use 'make help' for usage)
+$(info Use 'help' for usage)
 $(info ========================================)
