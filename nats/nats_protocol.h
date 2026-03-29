@@ -157,6 +157,11 @@ int natsProto_EncodePub(char *buf, int bufSize,
                         const char *subject, const char *reply,
                         const char *data, int dataLen);
 
+int natsProto_EncodeHPub(char *buf, int bufSize,
+                         const char *subject, const char *reply,
+                         const char *headers, int hdrLen,
+                         const char *data, int dataLen);
+
 int natsProto_EncodeSub(char *buf, int bufSize,
                         const char *subject, const char *queue, int64_t sid);
 

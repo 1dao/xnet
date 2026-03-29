@@ -34,26 +34,26 @@ endif
 # Platform specific settings
 ifeq ($(UNAME_S),Linux)
     PLATFORM = linux
-    CFLAGS = -Wall -Wextra -I.. $(OPT_FLAGS) $(DEBUG_FLAGS) -D__linux__ -D_GNU_SOURCE
-    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. $(OPT_FLAGS) $(DEBUG_FLAGS) -D__linux__ -D_GNU_SOURCE
+    CFLAGS = -Wall -Wextra -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS) -D__linux__ -D_GNU_SOURCE
+    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS) -D__linux__ -D_GNU_SOURCE
     LDFLAGS = $(LDFLAGS_BASE) -ldl -rdynamic
     TARGET_EXT =
 else ifeq ($(UNAME_S),Darwin)
     PLATFORM = darwin
-    CFLAGS = -Wall -Wextra -I.. $(OPT_FLAGS) $(DEBUG_FLAGS) -D__APPLE__ -D_DARWIN_C_SOURCE
-    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. $(OPT_FLAGS) $(DEBUG_FLAGS) -D__APPLE__ -D_DARWIN_C_SOURCE
+    CFLAGS = -Wall -Wextra -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS) -D__APPLE__ -D_DARWIN_C_SOURCE
+    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS) -D__APPLE__ -D_DARWIN_C_SOURCE
     LDFLAGS = $(LDFLAGS_BASE)
     TARGET_EXT =
 else ifeq ($(OS),Windows_NT)
     PLATFORM = windows
-    CFLAGS = -Wall -Wextra -I.. $(OPT_FLAGS) $(DEBUG_FLAGS) -D_WIN32 -D_WIN64
-    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. $(OPT_FLAGS) $(DEBUG_FLAGS) -D_WIN32 -D_WIN64
+    CFLAGS = -Wall -Wextra -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS) -D_WIN32 -D_WIN64
+    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS) -D_WIN32 -D_WIN64
     LDFLAGS = $(LDFLAGS_BASE)
     TARGET_EXT = .exe
 else
     PLATFORM = unknown
-    CFLAGS = -Wall -Wextra -I.. $(OPT_FLAGS) $(DEBUG_FLAGS)
-    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. $(OPT_FLAGS) $(DEBUG_FLAGS)
+    CFLAGS = -Wall -Wextra -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS)
+    CXXFLAGS = -Wall -Wextra -std=c++20 -I.. -I../nats $(OPT_FLAGS) $(DEBUG_FLAGS)
     LDFLAGS = $(LDFLAGS_BASE)
     TARGET_EXT =
 endif
@@ -278,7 +278,7 @@ svr_DEPS = \
     ../xtimer.c
 
 # xnats_client - NATS client demo
-xnats_client_SRC = xnats_client.c
+xnats_client_SRC = xnats_client.cpp
 xnats_client_DEPS = \
     ../ae.c \
     ../anet.c \
@@ -461,6 +461,7 @@ $(foreach demo,$(DEMOS),$(eval $(call LINK_DEMO,$(demo),$($(demo)_DEPS))))
 # ============================================
 # Info output
 # ============================================
+
 $(info ========================================)
 $(info Demo Makefile for $(PLATFORM))
 $(info Use 'help' for usage)

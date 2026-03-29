@@ -304,6 +304,126 @@ int natsParser_Parse(natsParser *parser, const char *data, int len) {
                 break;
             }
 
+            case PARSER_OP_H:
+                if (c == 'M') {
+                    parser->state = PARSER_OP_HM;
+                } else if (c == 'P') {
+                    parser->state = PARSER_OP_PI;  // HPUB -> 按 PUB 处理或添加 HPUB 处理
+                } else {
+                    parser->state = PARSER_START;
+                }
+                pos++;
+                break;
+
+            case PARSER_OP_HM:
+                parser->state = (c == 'S') ? PARSER_OP_HMS : PARSER_START;
+                pos++;
+                break;
+
+            case PARSER_OP_HMS:
+                parser->state = (c == 'G') ? PARSER_OP_HMSG : PARSER_START;
+                pos++;
+                break;
+
+            case PARSER_OP_HMSG:
+                if (c == ' ') {
+                    parser->state = PARSER_OP_HMSG_SPC;
+                } else {
+                    parser->state = PARSER_START;
+                }
+                pos++;
+                break;
+
+            case PARSER_OP_HMSG_SPC:
+            case PARSER_HMSG_ARGS: {
+                int lineLen = findLine(data + pos, len - pos);
+                if (lineLen == 0) {
+                    int remaining = len - pos;
+                    if (parser->linePos + remaining < NATS_MAX_CONTROL_LINE) {
+                        memcpy(parser->lineBuf + parser->linePos, data + pos, remaining);
+                        parser->linePos += remaining;
+                    }
+                    parser->state = PARSER_HMSG_ARGS;
+                    return len;
+                }
+
+                char *line = parser->lineBuf;
+                int lineTotalLen = parser->linePos + lineLen - 2;
+                if (parser->linePos > 0) {
+                    memcpy(parser->lineBuf + parser->linePos, data + pos, lineLen - 2);
+                    parser->lineBuf[lineTotalLen] = '\0';
+                } else {
+                    line = (char*)data + pos;
+                }
+
+                if (parseMsgArgs(line, lineTotalLen, &parser->args, true) < 0) {
+                    parser->state = PARSER_START;
+                    parser->linePos = 0;
+                    pos += lineLen;
+                    break;
+                }
+
+                parser->linePos = 0;
+                pos += lineLen;
+
+                // 分配 header 和 payload 缓冲区
+                if (parser->args.hdrSize > 0 || parser->args.payloadSize > 0) {
+                    int totalNeed = parser->args.hdrSize + parser->args.payloadSize + 2;
+                    parser->payloadBuf = (char*)malloc(totalNeed);
+                    parser->payloadPos = 0;
+                    parser->state = PARSER_HMSG_HDRS;
+                } else {
+                    if (parser->onMsg) {
+                        parser->onMsg(parser->userdata, &parser->args, NULL, 0, "", 0);
+                    }
+                    parser->state = PARSER_START;
+                }
+                break;
+            }
+
+            case PARSER_HMSG_HDRS: {
+                int need = parser->args.hdrSize - parser->payloadPos;
+                int have = len - pos;
+                int copy = (need < have) ? need : have;
+
+                if (copy > 0) {
+                    memcpy(parser->payloadBuf + parser->payloadPos, data + pos, copy);
+                    parser->payloadPos += copy;
+                    pos += copy;
+                }
+
+                if (parser->payloadPos >= parser->args.hdrSize) {
+                    parser->state = PARSER_HMSG_PAYLOAD;
+                }
+                break;
+            }
+
+            case PARSER_HMSG_PAYLOAD: {
+                int hdrOffset = parser->args.hdrSize;
+                int need = hdrOffset + parser->args.payloadSize + 2 - parser->payloadPos;
+                int have = len - pos;
+                int copy = (need < have) ? need : have;
+
+                if (copy > 0) {
+                    memcpy(parser->payloadBuf + parser->payloadPos, data + pos, copy);
+                    parser->payloadPos += copy;
+                    pos += copy;
+                }
+
+                if (parser->payloadPos >= hdrOffset + parser->args.payloadSize + 2) {
+                    if (parser->onMsg) {
+                        parser->onMsg(parser->userdata, &parser->args,
+                                      parser->payloadBuf, parser->args.hdrSize,
+                                      parser->payloadBuf + parser->args.hdrSize,
+                                      parser->args.payloadSize);
+                    }
+                    free(parser->payloadBuf);
+                    parser->payloadBuf = NULL;
+                    parser->state = PARSER_START;
+                }
+                break;
+            }
+
             case PARSER_OP_P:
                 if (c == 'I') {
                     parser->state = PARSER_OP_PI;
@@ -523,6 +643,56 @@ int natsProto_EncodePub(char *buf, int bufSize,
     if (n < 0 || n >= bufSize - pos) return -1;
     pos += n;
 
+    if (dataLen > 0) {
+        if (dataLen + 2 > bufSize - pos) return -1;
+        memcpy(buf + pos, data, dataLen);
+        pos += dataLen;
+    }
+
+    if (2 > bufSize - pos) return -1;
+    memcpy(buf + pos, "\r\n", 2);
+    pos += 2;
+
+    return pos;
+}
+
+// HPUB 编码 - 支持 headers
+// headers 格式: "Key1: Value1\\r\\nKey2: Value2\\r\\n"
+int natsProto_EncodeHPub(char *buf, int bufSize,
+                         const char *subject, const char *reply,
+                         const char *headers, int hdrLen,
+                         const char *data, int dataLen) {
+    int pos = 0;
+    int n;
+    int totalSize = hdrLen + dataLen;
+
+    // NATS headers 需要特定的 header 格式
+    // 第一行是 "NATS/1.0\r\n"
+    int natHdrLen = hdrLen > 0 ? hdrLen + 10 : 0; // 10 = "NATS/1.0\r\n"
+    totalSize = natHdrLen + dataLen;
+
+    if (reply) {
+        n = snprintf(buf + pos, bufSize - pos, "HPUB %s %s %d %d\r\n",
+                      subject, reply, natHdrLen, totalSize);
+    } else {
+        n = snprintf(buf + pos, bufSize - pos, "HPUB %s %d %d\r\n",
+                      subject, natHdrLen, totalSize);
+    }
+    if (n < 0 || n >= bufSize - pos) return -1;
+    pos += n;
+
+    // 写入 headers
+    if (natHdrLen > 0) {
+        if (natHdrLen + 2 > bufSize - pos) return -1;
+        memcpy(buf + pos, "NATS/1.0\r\n", 10);
+        pos += 10;
+        if (hdrLen > 0) {
+            memcpy(buf + pos, headers, hdrLen);
+            pos += hdrLen;
+        }
+    }
+
+    // 写入 data
     if (dataLen > 0) {
         if (dataLen + 2 > bufSize - pos) return -1;
         memcpy(buf + pos, data, dataLen);

@@ -1,10 +1,15 @@
 // Copyright 2025 The xnet Authors
 // Licensed under the Apache License, Version 2.0
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 #include "nats_internal.h"
 #include "nats_protocol.h"
@@ -67,7 +72,7 @@ void natsLock_Unlock(void *lock) {
 }
 
 // 全局初始化 - 使用全局事件循环，不再自己创建
-int nats_Init(void) {
+int nats_InitInternal(void) {
     if (g_nats.initCount++ > 0) return NATS_OK;
 
     // 获取全局事件循环（由应用层创建）
@@ -523,7 +528,7 @@ natsConnection* natsConnection_ConnectWithOptions(natsConnOptions *opts) {
 
     // 确保已初始化
     if (g_nats.initCount == 0) {
-        if (nats_Init() != NATS_OK) return NULL;
+        if (nats_InitInternal() != NATS_OK) return NULL;
     }
 
     natsConnection *conn = (natsConnection*)calloc(1, sizeof(natsConnection));
@@ -925,5 +930,420 @@ const char* natsStatus_GetText(int status) {
         case NATS_ERR_SUBSCRIPTION_CLOSED: return "Subscription closed";
         case NATS_ERR_NO_RESPONDERS: return "No responders";
         default: return "Unknown error";
+        }
     }
+
+// ============================================================================
+// Simplified API implementation
+// ============================================================================
+
+// Forward declarations for dispatcher functions (C++ only)
+#ifdef __cplusplus
+static void nats_vrpc_dispatcher(natsConnection *conn, natsSubscription *sub, natsMessage *msg, void *userdata);
+static void nats_publish_dispatcher(natsConnection *conn, natsSubscription *sub, natsMessage *msg, void *userdata);
+#endif
+
+int nats_Init(const natsSimplifiedOpts *opts) {
+	if (opts == NULL)
+		return NATS_ERR_INVALID_ARG;
+
+	// Initialize global context
+	if (nats_InitInternal() != NATS_OK)
+		return NATS_ERR;
+
+	g_nats.nodeName = nats_strdup(opts->node_name);
+	if (g_nats.nodeName == NULL) {
+		nats_Uninit();
+		return NATS_ERR_NO_MEMORY;
+	}
+
+	// Store the URL for nats_Start to use when creating Subscriptions
+	// The connection will be established when nats_Start is called
+	// after the event loop is running
+
+	// Create connection options
+	natsConnOptions connOpts = natsConnOptions_Defaults();
+	connOpts.url = nats_strdup(opts->url);
+	connOpts.onConnect = [](natsConnection *conn, int event, void *userdata) {
+		natsSimplifiedOpts *opts = (natsSimplifiedOpts*)userdata;
+		if (opts->on_connected)
+			opts->on_connected();
+	};
+	connOpts.onDisconnect = [](natsConnection *conn, int event, void *userdata) {
+		natsSimplifiedOpts *opts = (natsSimplifiedOpts*)userdata;
+		if (opts->on_disconnected)
+			opts->on_disconnected();
+	};
+	connOpts.onError = [](natsConnection *conn, int err, const char *errStr, void *userdata) {
+		natsSimplifiedOpts *opts = (natsSimplifiedOpts*)userdata;
+		if (opts->on_error)
+			opts->on_error(err, errStr);
+	};
+	connOpts.userdata = (void*)opts;
+
+	// Connect to NATS server
+	g_nats.conn = natsConnection_ConnectWithOptions(&connOpts);
+	if (g_nats.conn == NULL) {
+		free(g_nats.nodeName);
+		g_nats.nodeName = NULL;
+		nats_Uninit();
+		return NATS_ERR;
+	}
+
+	// Note: Subscriptions will be created in nats_Start after connection is fully established
+
+	return NATS_OK;
 }
+
+void nats_Start(void) {
+	// In xnet, the event loop is already started by the application
+	// Wait for connection and create subscriptions
+	if (g_nats.conn == NULL)
+		return;
+
+	// Wait up to 5 seconds for connection to be established
+	int waitCount = 0;
+	while (!natsConnection_IsConnected(g_nats.conn) && waitCount < 50) {
+		aeProcessEvents(g_nats.el, AE_ALL_EVENTS | AE_DONT_WAIT);
+		aeWait(-1, AE_NONE, 100);
+		waitCount++;
+	}
+
+	if (!natsConnection_IsConnected(g_nats.conn)) {
+		printf("[%s] Connection timeout in nats_Start\n", g_nats.nodeName);
+		return;
+	}
+
+	// Create subscriptions now that we're connected
+	// Subscribe to RPC subject: rpc:{node_name}.* (wildcard to match any protocol type)
+	char rpcSubject[256];
+	snprintf(rpcSubject, sizeof(rpcSubject), "rpc:%s.*", g_nats.nodeName);
+	natsSubscription* rpcSub = natsConnection_Subscribe(g_nats.conn, rpcSubject, nats_vrpc_dispatcher, NULL);
+	if (rpcSub == NULL) {
+		printf("[%s] Failed to subscribe to RPC subject: %s\n", g_nats.nodeName, rpcSubject);
+		return;
+	} else {
+		printf("[%s] Successfully subscribed to RPC subject: %s\n", g_nats.nodeName, rpcSubject);
+	}
+
+	// Subscribe to broadcast subject: pubsub:game
+	natsSubscription* broadcastSub = natsConnection_Subscribe(g_nats.conn, "pubsub:game", nats_publish_dispatcher, NULL);
+	if (broadcastSub == NULL) {
+		printf("[%s] Failed to subscribe to broadcast subject: pubsub:game\n", g_nats.nodeName);
+		return;
+	} else {
+		printf("[%s] Successfully subscribed to broadcast subject: pubsub:game\n", g_nats.nodeName);
+	}
+
+	// Flush subscriptions to ensure they are sent
+	natsConnection_Flush(g_nats.conn);
+}
+
+void nats_Stop(void)
+{
+    if (g_nats.conn != NULL) {
+        natsConnection_Close(g_nats.conn);
+        natsConnection_Destroy(g_nats.conn);
+        g_nats.conn = NULL;
+    }
+
+    if (g_nats.nodeName != NULL) {
+        free(g_nats.nodeName);
+        g_nats.nodeName = NULL;
+    }
+
+    nats_Uninit();
+}
+
+    // ============================================================================
+    // C++ VRPC implementation
+    // ============================================================================
+    #ifdef __cplusplus
+
+    #include "../xcoroutine.h"
+    #include "../xerrno.h"
+    #include "../ae.h"
+
+    #include <vector>
+    #include "../xpack.h"
+
+     // Protocol handlers (defined before dispatcher functions)
+     static natsPostHandler s_post_handlers[65536] = {NULL};
+     static natsVRPCHandler s_vrpc_handlers[65536] = {NULL};
+
+    	// VRPC 消息分发器 - 处理接收到的 VRPC 请求
+    	static void nats_vrpc_dispatcher(natsConnection *conn, natsSubscription *sub, natsMessage *msg, void *userdata) {
+    		(void)conn;
+    		(void)sub;
+    		(void)userdata;
+    		
+    		const char *subject = natsMessage_GetSubject(msg);
+    		const char *data = natsMessage_GetData(msg);
+    		int dataLen = natsMessage_GetDataLength(msg);
+    		
+    		xlog_info("[VRPC Dispatcher] Received message on subject: %s, dataLen: %d", subject ? subject : "unknown", dataLen);
+    		
+    		// Print first few bytes for debugging
+    		if (dataLen >= 10) {
+    			xlog_info("[VRPC Dispatcher] Header bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+    				(unsigned char)data[0], (unsigned char)data[1], (unsigned char)data[2], (unsigned char)data[3],
+    				(unsigned char)data[4], (unsigned char)data[5], (unsigned char)data[6], (unsigned char)data[7],
+    				(unsigned char)data[8], (unsigned char)data[9]);
+    		}
+    		
+    		if (dataLen < (int)(sizeof(uint32_t) + sizeof(int) + sizeof(uint16_t))) {
+    			xlog_err("[VRPC Dispatcher] Message too small: %d bytes", dataLen);
+    			return;
+    		}
+    
+        // Parse RPC header
+        uint32_t wait_id = ntohl(*(uint32_t*)data);
+        int co_id = ntohl(*(int*)(data + sizeof(uint32_t)));
+        uint16_t pt = ntohs(*(uint16_t*)(data + sizeof(uint32_t) + sizeof(int)));
+    
+        const char *payload = data + sizeof(uint32_t) + sizeof(int) + sizeof(uint16_t);
+        int payloadLen = dataLen - (sizeof(uint32_t) + sizeof(int) + sizeof(uint16_t));
+    
+        		// Look up handler
+        		natsVRPCHandler handler = s_vrpc_handlers[pt];
+        		xlog_info("[VRPC Dispatcher] Lookup handler for pt=%u, found=%s", pt, handler ? "yes" : "no");
+        		if (handler == NULL) {
+        			// No handler registered, send empty response
+        			xlog_err("[VRPC Dispatcher] No handler registered for pt=%u", pt);
+        			const char *reply = natsMessage_GetReply(msg);
+        			if (reply && reply[0]) {
+        				// Send error response
+        				XPackBuff empty;
+        				natsConnection_Publish(conn, reply, empty.get(), empty.len);
+        			}
+        			return;
+        		}
+    
+        // Parse arguments with exception handling
+        std::vector<VariantType> args;
+        try {
+            if (payloadLen > 0) {
+                args = xpack_unpack(payload, payloadLen);
+            }
+        } catch (const std::exception& e) {
+            xlog_err("[VRPC Dispatcher] Failed to unpack payload: %s", e.what());
+            const char *reply = natsMessage_GetReply(msg);
+            if (reply && reply[0]) {
+                XPackBuff empty;
+                natsConnection_Publish(conn, reply, empty.get(), empty.len);
+            }
+            return;
+        }
+    
+        // Call handler
+        XPackBuff response = handler(conn, args);
+
+        // Send response if there's a reply subject
+        const char *reply = natsMessage_GetReply(msg);
+        if (reply && reply[0]) {
+            // Pack response with RPC header matching xhandle format:
+            // [wait_id(4)][co_id(4)][retcode(4)][packed_data]
+            int retcode = 0; // Success
+            size_t totalLen = sizeof(uint32_t) + sizeof(int) + sizeof(int) + response.len;
+            char *respBuf = (char*)malloc(totalLen);
+            if (respBuf) {
+                *(uint32_t*)respBuf = htonl(wait_id);
+                *(int*)(respBuf + sizeof(uint32_t)) = htonl(co_id);
+                *(int*)(respBuf + sizeof(uint32_t) + sizeof(int)) = htonl(retcode);
+                memcpy(respBuf + sizeof(uint32_t) + sizeof(int) + sizeof(int), response.get(), response.len);
+                natsConnection_Publish(conn, reply, respBuf, (int)totalLen);
+                free(respBuf);
+            }
+        }
+    }
+
+    // Broadcast 消息分发器 - 处理接收到的广播消息
+    static void nats_publish_dispatcher(natsConnection *conn, natsSubscription *sub, natsMessage *msg, void *userdata) {
+        (void)conn;
+        (void)sub;
+        (void)userdata;
+    
+        const char *data = natsMessage_GetData(msg);
+        int dataLen = natsMessage_GetDataLength(msg);
+    
+        if (dataLen < (int)sizeof(uint16_t)) {
+            return;
+        }
+    
+        // Parse protocol type
+        uint16_t pt = ntohs(*(uint16_t*)data);
+        const char *payload = data + sizeof(uint16_t);
+        int payloadLen = dataLen - sizeof(uint16_t);
+    
+        // Look up handler
+        natsPostHandler handler = s_post_handlers[pt];
+        if (handler == NULL) {
+            return;
+        }
+    
+        // Parse arguments
+        std::vector<VariantType> args = xpack_unpack(payload, payloadLen);
+    
+        // Call handler
+        handler(conn, args);
+    }
+
+    // RPC响应处理 - 处理inbox收到的响应消息
+    static void nats_rpc_response_handler(natsConnection *conn, natsSubscription *sub, natsMessage *msg, void *userdata) {
+        (void)conn;
+        (void)sub;
+
+        uint32_t wait_id = (uint32_t)(uintptr_t)userdata;
+
+        const char *data = natsMessage_GetData(msg);
+        int dataLen = natsMessage_GetDataLength(msg);
+
+        if (dataLen < (int)(sizeof(uint32_t) + sizeof(int) + sizeof(uint16_t))) {
+            // Invalid response format, resume with empty result
+            std::vector<VariantType> empty;
+            empty.push_back(-1); // Add error code
+            coroutine_resume(wait_id, std::move(empty));
+            natsSubscription_Unsubscribe(sub);
+            return;
+        }
+
+        // Parse response header: [wait_id(4)][co_id(4)][retcode(4)][packed_data]
+        int retcode = ntohl(*(int*)(data + sizeof(uint32_t) + sizeof(int)));
+
+        const char *payload = data + sizeof(uint32_t) + sizeof(int) + sizeof(int);
+        int payloadLen = dataLen - (sizeof(uint32_t) + sizeof(int) + sizeof(int));
+
+        // Parse the response payload
+        std::vector<VariantType> result;
+        if (payloadLen > 0) {
+            try {
+                result = xpack_unpack(payload, payloadLen);
+                // Insert retcode at the beginning for compatibility with XRPC_CHECK_RETURN
+                result.insert(result.begin(), retcode);
+            } catch (const std::exception& e) {
+                // Unpack failed, return error
+                result.clear();
+                result.push_back(-1); // Error code
+                xlog_err("xpack_unpack failed: %s", e.what());
+            }
+        } else {
+            // Empty response, return retcode only
+            result.push_back(retcode);
+        }
+
+        // Resume the waiting coroutine
+        coroutine_resume(wait_id, std::move(result));
+    
+        // Unsubscribe after receiving response
+        natsSubscription_Unsubscribe(sub);
+    }
+
+    // 底层 VRPC 请求实现
+    struct xAwaiter nats_raw_rpc(natsConnection *conn, const char *subject,
+                                 int pt, const char *data, int dataLen,
+                                 int64_t timeout_ms) {
+        xAwaiter awaiter;
+        uint32_t wait_id = awaiter.wait_id();
+        if (wait_id == 0) {
+            return xAwaiter(NATS_ERR_NOT_IN_COROUTINE);
+        }
+
+        int co_id = coroutine_self_id();
+        if (co_id == -1) {
+            return xAwaiter(NATS_ERR_NOT_IN_COROUTINE);
+        }
+
+        if (conn == NULL || !natsConnection_IsConnected(conn)) {
+            return xAwaiter(NATS_ERR_CONNECTION_CLOSED);
+        }
+
+        // Create inbox for response
+        char *inbox = natsConnection_NewInbox(conn);
+        if (inbox == NULL) {
+            return xAwaiter(NATS_ERR_NO_MEMORY);
+        }
+    
+        // Subscribe to the inbox BEFORE sending the request
+        natsSubscription *respSub = natsConnection_Subscribe(conn, inbox, nats_rpc_response_handler, (void*)(uintptr_t)wait_id);
+        if (respSub == NULL) {
+            free(inbox);
+            return xAwaiter(NATS_ERR);
+        }
+    
+        // Auto-unsubscribe after 1 message (the response)
+        natsSubscription_AutoUnsubscribe(respSub, 1);
+    
+        // Pack RPC request - we need to pack the data with xpack first
+        XPackBuff packedData;
+        if (dataLen > 0 && data != NULL) {
+            // Pack the data as a string argument
+            packedData = xpack_pack(false, std::string(data, dataLen));
+        } else {
+            // Empty data
+            packedData = XPackBuff("", 0);
+        }
+
+        // Pack RPC request format: [wait_id(4)][co_id(4)][pt(2)][packed_data]
+        // We use NATS publish with reply inbox to send the request
+        size_t totalLen = sizeof(uint32_t) + sizeof(int) + sizeof(uint16_t) + packedData.len;
+        char *reqBuf = (char*)malloc(totalLen);
+        if (reqBuf == NULL) {
+            natsSubscription_Unsubscribe(respSub);
+            free(inbox);
+            return xAwaiter(NATS_ERR_NO_MEMORY);
+        }
+
+        // Write RPC header
+        *(uint32_t*)reqBuf = htonl(wait_id);
+        *(int*)(reqBuf + sizeof(uint32_t)) = htonl(co_id);
+        *(uint16_t*)(reqBuf + sizeof(uint32_t) + sizeof(int)) = htons((uint16_t)pt);
+        memcpy(reqBuf + sizeof(uint32_t) + sizeof(int) + sizeof(uint16_t), packedData.get(), packedData.len);
+    
+        // Publish request with reply inbox
+        int ret = natsConnection_PublishWithReply(conn, subject, inbox, reqBuf, (int)totalLen);
+        free(reqBuf);
+        free(inbox);
+    
+        if (ret != NATS_OK) {
+            natsSubscription_Unsubscribe(respSub);
+            return xAwaiter(ret);
+        }
+    
+        // Flush to ensure the message is sent
+        natsConnection_Flush(conn);
+    
+        awaiter.set_timeout(timeout_ms);
+        return awaiter;
+    }
+
+    // High-level VRPC request to target node
+    struct xAwaiter nats_rpc(const char *target, int pt,
+                             const char *data, int dataLen,
+                             int64_t timeout_ms) {
+        // Check if initialized
+        if (g_nats.conn == NULL) {
+            return xAwaiter(NATS_ERR_NOT_INITIALIZED);
+        }
+
+        // Build subject: rpc:<node_name>.<pt>
+        // The subscription is on rpc:{node_name}, so we use that format
+        char subject[256];
+        snprintf(subject, sizeof(subject), "rpc:%s.%d", target, pt);
+
+        return nats_raw_rpc(g_nats.conn, subject, pt, data, dataLen, timeout_ms);
+    }
+
+ // Handler registration
+void nats_reg_publish(int pt, natsPostHandler h) {
+        if (pt >= 0 && pt < 65536) {
+            s_post_handlers[pt] = h;
+        }
+    }
+
+    void nats_reg_vrpc(int pt, natsVRPCHandler h) {
+        if (pt >= 0 && pt < 65536) {
+            s_vrpc_handlers[pt] = h;
+        }
+    }
+
+    #endif // __cplusplus
